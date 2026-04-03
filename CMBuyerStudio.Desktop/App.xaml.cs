@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace CMBuyerStudio.Desktop;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private readonly IHost _host;
 
