@@ -1,0 +1,105 @@
+# =========================
+# BUILD / BIN / OBJ
+# =========================
+bin/
+obj/
+out/
+artifacts/
+
+# =========================
+# USER / IDE
+# =========================
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider / VSCode (por si acaso)
+.idea/
+.vscode/
+
+# =========================
+# TEST RESULTS
+# =========================
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+# =========================
+# NUGET
+# =========================
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# =========================
+# LOGS
+# =========================
+logs/
+*.log
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# PUBLISH
+# =========================
+publish/
+*.publishsettings
+
+# =========================
+# CONFIG / SETTINGS SENSIBLES
+# =========================
+appsettings.Development.json
+appsettings.Local.json
+settings.local.json
+
+# credenciales (MUY IMPORTANTE)
+secrets.json
+credentials.json
+
+# =========================
+# CACHE (TU CASO ESPECÍFICO)
+# =========================
+cache/
+*.cache.json
+scrape-cache/
+scrape-cache.db
+
+# =========================
+# DATA LOCAL (TU APP)
+# =========================
+cards.local.json
+cards.debug.json
+
+# =========================
+# PLAYWRIGHT / SCRAPING
+# =========================
+playwright-report/
+playwright/.cache/
+*.har
+
+# =========================
+# FRONTEND (POR SI METES WEB)
+# =========================
+node_modules/
+dist/
+build/
+
+# =========================
+# TEMP FILES
+# =========================
+*.tmp
+*.temp
+
+# =========================
+# BACKUPS
+# =========================
+*.bak
+*.backup
