@@ -1,26 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Windows;
+﻿using CMBuyerStudio.Desktop.ViewModels;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
-namespace CMBuyerStudio.Desktop.Views
+namespace CMBuyerStudio.Desktop.Views;
+
+public partial class WantedCardsView : UserControl
 {
-    /// <summary>
-    /// Lógica de interacción para WantedCardsView.xaml
-    /// </summary>
-    public partial class WantedCardsView : UserControl
+    public WantedCardsView()
     {
-        public WantedCardsView()
-        {
-            InitializeComponent();
-        }
+        InitializeComponent();
+        DataContext = new WantedCardsViewModel();
     }
 }

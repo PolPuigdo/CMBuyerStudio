@@ -20,11 +20,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         SettingsViewModel = settingsViewModel;
         LogsViewModel = logsViewModel;
 
-        ShowSearchCommand = new RelayCommand(() => CurrentViewModel = SearchViewModel);
-        ShowWantedCardsCommand = new RelayCommand(() => CurrentViewModel = WantedCardsViewModel);
-        ShowRunBestSellerCommand = new RelayCommand(() => CurrentViewModel = RunBestSellerViewModel);
-        ShowSettingsCommand = new RelayCommand(() => CurrentViewModel = SettingsViewModel);
-        ShowLogsCommand = new RelayCommand(() => CurrentViewModel = LogsViewModel);
+        ShowSearchCommand = new RelayCommand(_ => CurrentViewModel = SearchViewModel);
+        ShowWantedCardsCommand = new RelayCommand(_ => CurrentViewModel = WantedCardsViewModel);
+        ShowRunBestSellerCommand = new RelayCommand(_ => CurrentViewModel = RunBestSellerViewModel);
+        ShowSettingsCommand = new RelayCommand(_ => CurrentViewModel = SettingsViewModel);
+        ShowLogsCommand = new RelayCommand(_ => CurrentViewModel = LogsViewModel);
 
         _currentViewModel = SearchViewModel;
     }
