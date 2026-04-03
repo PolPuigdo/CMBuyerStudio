@@ -16,8 +16,10 @@ public static class ServiceRegistration
         services.AddSingleton<RunBestSellerViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<LogsViewModel>();
-
         services.AddSingleton<MainWindowViewModel>();
+
+        services.AddSingleton<WantedCardsView>();
+
         services.AddSingleton<MainWindow>();
 
         return services;

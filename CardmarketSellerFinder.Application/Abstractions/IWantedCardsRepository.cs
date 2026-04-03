@@ -1,14 +1,10 @@
-﻿namespace CMBuyerStudio.Application.Abstractions;
+﻿using CMBuyerStudio.Domain.WantedCards;
 
-using CMBuyerStudio.Domain.Entities;
+namespace CMBuyerStudio.Application.Abstractions;
 
 public interface IWantedCardsRepository
 {
-    Task<IReadOnlyList<CardWanted>> GetAllAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<WantedCardGroup>> GetAllAsync(CancellationToken cancellationToken = default);
 
-    Task AddAsync(CardWanted card, CancellationToken cancellationToken);
-
-    Task RemoveAsync(Guid id, CancellationToken cancellationToken);
-
-    Task ClearAsync(CancellationToken cancellationToken);
+    Task SaveAllAsync(IEnumerable<WantedCardGroup> groups, CancellationToken cancellationToken = default);
 }

@@ -8,6 +8,5 @@ public partial class WantedCardsView : UserControl
     public WantedCardsView()
     {
         InitializeComponent();
-        DataContext = new WantedCardsViewModel();
     }
 }

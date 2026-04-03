@@ -1,8 +1,9 @@
-﻿using System.Windows;
-using CMBuyerStudio.Desktop.Composition;
+﻿using CMBuyerStudio.Desktop.Composition;
+using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Windows;
 
 namespace CMBuyerStudio.Desktop;
 
@@ -15,6 +16,7 @@ public partial class App : System.Windows.Application
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>
             {
+                services.AddPersistence();
                 services.AddDesktop();
             })
             .Build();
@@ -25,6 +27,10 @@ public partial class App : System.Windows.Application
         await _host.StartAsync();
 
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+        var wantedCardsViewModel = _host.Services.GetRequiredService<WantedCardsViewModel>();
+
+        await wantedCardsViewModel.InitializeAsync();
+
         mainWindow.Show();
 
         base.OnStartup(e);

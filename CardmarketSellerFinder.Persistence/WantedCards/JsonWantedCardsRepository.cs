@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using CMBuyerStudio.Application.Abstractions;
-using CMBuyerStudio.Domain.Entities;
+using CMBuyerStudio.Domain.WantedCards;
 
 namespace CMBuyerStudio.Persistence.WantedCards;
 
@@ -19,45 +19,34 @@ public sealed class JsonWantedCardsRepository : IWantedCardsRepository
         };
     }
 
-    public async Task<IReadOnlyList<CardWanted>> GetAllAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<WantedCardGroup>> GetAllAsync(CancellationToken cancellationToken = default)
     {
         if (!File.Exists(_paths.CardsPath))
-            return new List<CardWanted>();
+            return new List<WantedCardGroup>();
 
         await using var stream = File.OpenRead(_paths.CardsPath);
 
-        var cards = await JsonSerializer.DeserializeAsync<List<CardWanted>>(stream, _jsonOptions, cancellationToken);
+        var groups = await JsonSerializer.DeserializeAsync<List<WantedCardGroup>>(
+            stream,
+            _jsonOptions,
+            cancellationToken);
 
-        return cards ?? new List<CardWanted>();
+        return groups ?? new List<WantedCardGroup>();
     }
 
-    public async Task AddAsync(CardWanted card, CancellationToken cancellationToken)
+    public async Task SaveAllAsync(IEnumerable<WantedCardGroup> groups, CancellationToken cancellationToken = default)
     {
-        var cards = (await GetAllAsync(cancellationToken)).ToList();
+        var directory = Path.GetDirectoryName(_paths.CardsPath);
 
-        cards.Add(card);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
 
-        await SaveAsync(cards, cancellationToken);
-    }
-
-    public async Task RemoveAsync(Guid id, CancellationToken cancellationToken)
-    {
-        var cards = (await GetAllAsync(cancellationToken)).ToList();
-
-        cards.RemoveAll(c => c.Id == id);
-
-        await SaveAsync(cards, cancellationToken);
-    }
-
-    public async Task ClearAsync(CancellationToken cancellationToken)
-    {
-        await SaveAsync(new List<CardWanted>(), cancellationToken);
-    }
-
-    private async Task SaveAsync(List<CardWanted> cards, CancellationToken cancellationToken)
-    {
         await using var stream = File.Create(_paths.CardsPath);
 
-        await JsonSerializer.SerializeAsync(stream, cards, _jsonOptions, cancellationToken);
+        await JsonSerializer.SerializeAsync(
+            stream,
+            groups,
+            _jsonOptions,
+            cancellationToken);
     }
 }
