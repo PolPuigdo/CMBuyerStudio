@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="CardmarketSellerFinder.Application/CMBuyerStudio.Application.csproj" />
+  <Project Path="CardmarketSellerFinder.Domain/CMBuyerStudio.Domain.csproj" />
+  <Project Path="CardmarketSellerFinder.Infrastructure/CMBuyerStudio.Infrastructure.csproj" />
+  <Project Path="CardmarketSellerFinder.Persistence/CMBuyerStudio.Persistence.csproj" />
+  <Project Path="CardmarketSellerFinder.Reporting/CMBuyerStudio.Reporting.csproj" />
+  <Project Path="CMBuyerStudio.Desktop/CMBuyerStudio.Desktop.csproj" />
+  <Project Path="CMBuyerStudio.Tests.Integration/CMBuyerStudio.Tests.Integration.csproj" />
+  <Project Path="CMBuyerStudio.Tests.Unit/CMBuyerStudio.Tests.Unit.csproj" />
+</Solution>
