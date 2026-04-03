@@ -1,0 +1,12 @@
+﻿<UserControl x:Class="CMBuyerStudio.Desktop.Views.WantedCardsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#12141A">
+        <TextBlock Text="WANTED"
+                   Foreground="White"
+                   FontSize="32"
+                   FontWeight="Bold"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"/>
+    </Grid>
+</UserControl>

@@ -11,6 +11,12 @@ public static class ServiceRegistration
 {
     public static IServiceCollection AddDesktop(this IServiceCollection services)
     {
+        services.AddSingleton<SearchViewModel>();
+        services.AddSingleton<WantedCardsViewModel>();
+        services.AddSingleton<RunBestSellerViewModel>();
+        services.AddSingleton<SettingsViewModel>();
+        services.AddSingleton<LogsViewModel>();
+
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<MainWindow>();
 
