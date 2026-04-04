@@ -4,6 +4,6 @@ namespace CMBuyerStudio.Application.Abstractions
 {
     public interface ICardSearchService
     {
-        Task<IReadOnlyList<SearchCardVariantResult>> SearchAsync(string query, CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<SearchCardResult>> SearchAsync(string query, CancellationToken cancellationToken = default);
     }
 }

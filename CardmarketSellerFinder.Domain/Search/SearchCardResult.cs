@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 
 namespace CMBuyerStudio.Domain.Search;
 
-public class SearchCardVariantResult : INotifyPropertyChanged
+public class SearchCardResult : INotifyPropertyChanged
 {
     private string _cardName = string.Empty;
     private string _setName = string.Empty;

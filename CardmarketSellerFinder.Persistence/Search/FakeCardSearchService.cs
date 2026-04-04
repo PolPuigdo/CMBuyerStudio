@@ -6,16 +6,16 @@ namespace CMBuyerStudio.Persistence.Search;
 
 public sealed class FakeCardSearchService : ICardSearchService
 {
-    public Task<IReadOnlyList<SearchCardVariantResult>> SearchAsync(
+    public Task<IReadOnlyList<SearchCardResult>> SearchAsync(
     string query,
     CancellationToken cancellationToken = default)
     {
         var normalizedQuery = query?.Trim() ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(normalizedQuery))
-            return Task.FromResult<IReadOnlyList<SearchCardVariantResult>>(new List<SearchCardVariantResult>());
+            return Task.FromResult<IReadOnlyList<SearchCardResult>>(new List<SearchCardResult>());
 
-        var results = new List<SearchCardVariantResult>
+        var results = new List<SearchCardResult>
     {
         new()
         {
@@ -40,6 +40,6 @@ public sealed class FakeCardSearchService : ICardSearchService
         }
     };
 
-        return Task.FromResult<IReadOnlyList<SearchCardVariantResult>>(results);
+        return Task.FromResult<IReadOnlyList<SearchCardResult>>(results);
     }
 }

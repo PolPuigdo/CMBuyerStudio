@@ -22,7 +22,7 @@ public sealed class SearchViewModel : ViewModelBase
     private bool _isSearching;
     private bool _isSaving;
 
-    public ObservableCollection<SearchCardVariantResult> Results { get; } = new();
+    public ObservableCollection<SearchCardResult> Results { get; } = new();
 
     public string SearchText
     {
@@ -108,7 +108,7 @@ public sealed class SearchViewModel : ViewModelBase
     {
         if (e.OldItems != null)
         {
-            foreach (SearchCardVariantResult variant in e.OldItems)
+            foreach (SearchCardResult variant in e.OldItems)
             {
                 DetachVariant(variant);
             }
@@ -116,7 +116,7 @@ public sealed class SearchViewModel : ViewModelBase
 
         if (e.NewItems != null)
         {
-            foreach (SearchCardVariantResult variant in e.NewItems)
+            foreach (SearchCardResult variant in e.NewItems)
             {
                 AttachVariant(variant);
             }
@@ -126,19 +126,19 @@ public sealed class SearchViewModel : ViewModelBase
         RefreshSelectionState();
     }
 
-    private void AttachVariant(SearchCardVariantResult variant)
+    private void AttachVariant(SearchCardResult variant)
     {
         variant.PropertyChanged += OnVariantPropertyChanged;
     }
 
-    private void DetachVariant(SearchCardVariantResult variant)
+    private void DetachVariant(SearchCardResult variant)
     {
         variant.PropertyChanged -= OnVariantPropertyChanged;
     }
 
     private void OnVariantPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(SearchCardVariantResult.IsSelected))
+        if (e.PropertyName == nameof(SearchCardResult.IsSelected))
         {
             RefreshSelectionState();
         }
