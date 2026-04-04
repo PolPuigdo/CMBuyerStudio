@@ -17,6 +17,7 @@ public partial class App : System.Windows.Application
             .ConfigureServices((context, services) =>
             {
                 services.AddPersistence();
+                services.AddApplication();
                 services.AddDesktop();
             })
             .Build();

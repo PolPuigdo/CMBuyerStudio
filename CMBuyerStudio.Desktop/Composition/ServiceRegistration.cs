@@ -1,7 +1,9 @@
 ﻿using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Services;
 using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
 using CMBuyerStudio.Infrastructure.Paths;
+using CMBuyerStudio.Persistence.Search;
 using CMBuyerStudio.Persistence.WantedCards;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -27,6 +29,7 @@ public static class ServiceRegistration
 
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
+        services.AddSingleton<IWantedCardsService, WantedCardsService>();
         return services;
     }
 
@@ -40,6 +43,7 @@ public static class ServiceRegistration
     {
         services.AddSingleton<IAppPaths, AppPaths>();
         services.AddSingleton<IWantedCardsRepository, JsonWantedCardsRepository>();
+        services.AddSingleton<ICardSearchService, FakeCardSearchService>();
         return services;
     }
 

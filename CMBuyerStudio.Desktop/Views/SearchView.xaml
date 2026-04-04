@@ -27,162 +27,106 @@
                 <TextBox Grid.Column="0"
                          Margin="0,0,14,0"
                          Style="{StaticResource SearchTextBoxStyle}"
-                         Text="Falkenrath Aristocrat"/>
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
 
                 <Button Grid.Column="1"
-                        Margin="0,0,14,0"
-                        Content="Search"
-                        Style="{StaticResource PrimaryButtonStyle}"/>
+                    Margin="0,0,14,0"
+                    Content="Search"
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Command="{Binding SearchCommand}"
+                    IsEnabled="{Binding CanSearch}"/>
 
                 <TextBlock Grid.Column="2"
-                           Margin="0,0,18,0"
-                           VerticalAlignment="Center"
-                           Text="3 results"
-                           Foreground="{StaticResource BrushTextSecondary}"
-                           FontSize="13"/>
-
+                   Margin="0,0,18,0"
+                   VerticalAlignment="Center"
+                   Foreground="{StaticResource BrushTextSecondary}"
+                   FontSize="13"
+                   Text="{Binding ResultsCount, StringFormat={}{0} results, Mode=OneWay}"/>
+                
                 <Button Grid.Column="3"
-                        Content="Select All"
-                        Style="{StaticResource SecondaryButtonStyle}"/>
+                    Content="Select All"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Command="{Binding SelectAllCommand}"
+                    IsEnabled="{Binding HasResults}"/>
             </Grid>
         </Border>
 
         <!-- RESULTS -->
         <ScrollViewer Grid.Row="2"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
+              VerticalScrollBarVisibility="Auto"
+              HorizontalScrollBarVisibility="Disabled">
 
-            <WrapPanel Margin="0,4,0,0">
+            <Border Style="{StaticResource SectionPanelStyle}"
+            Padding="18"
+            Margin="0,4,0,0">
 
-                <!-- CARD 1 -->
-                <Border Style="{StaticResource HoverSearchCardStyle}">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="14"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Available variants"
+                       Style="{StaticResource CardSecondaryTextStyle}"
+                       Margin="0,0,0,14"/>
 
-                        <Grid Grid.Row="0">
-                            <Border Style="{StaticResource CardImageContainerStyle}">
-                                <Image Source="https://cards.scryfall.io/normal/front/1/0/10b3a5d4.jpg"
-                                       Height="360"
-                                       Stretch="Uniform"/>
-                            </Border>
+                    <ItemsControl ItemsSource="{Binding Results}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
 
-                            <Border HorizontalAlignment="Right"
-                                    VerticalAlignment="Top"
-                                    Margin="8"
-                                    Style="{StaticResource CardOverlayChipStyle}">
-                                <CheckBox HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"/>
-                            </Border>
-                        </Grid>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Style="{StaticResource HoverSearchCardStyle}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="14"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
 
-                        <StackPanel Grid.Row="2">
-                            <TextBlock Text="Falkenrath Aristocrat"
-                                       Style="{StaticResource CardTitleTextStyle}"/>
+                                        <Grid Grid.Row="0">
+                                            <Border Style="{StaticResource CardImageContainerStyle}">
+                                                <Image Source="https://cards.scryfall.io/normal/front/1/0/10b3a5d4.jpg"
+                                               Height="360"
+                                               Stretch="Uniform"/>
+                                            </Border>
 
-                            <TextBlock Text="Modern Masters 2017"
-                                       Margin="0,8,0,0"
-                                       Style="{StaticResource CardSecondaryTextStyle}"/>
+                                            <Border HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            Margin="8"
+                                            Style="{StaticResource CardOverlayChipStyle}">
+                                                <CheckBox HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
+                                            </Border>
+                                        </Grid>
 
-                            <TextBlock Text="Price 0,05 €"
-                                       Margin="0,10,0,0"
-                                       Style="{StaticResource CardPriceTextStyle}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                                        <StackPanel Grid.Row="2">
+                                            <TextBlock Text="{Binding CardName}"
+                                               Style="{StaticResource CardTitleTextStyle}"/>
 
-                <!-- CARD 2 -->
-                <Border Style="{StaticResource HoverSearchCardStyle}">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="14"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                                            <TextBlock Text="{Binding SetName}"
+                                               Margin="0,8,0,0"
+                                               Style="{StaticResource CardSecondaryTextStyle}"/>
 
-                        <Grid Grid.Row="0">
-                            <Border Style="{StaticResource CardImageContainerStyle}">
-                                <Image Source="https://cards.scryfall.io/normal/front/1/0/10b3a5d4.jpg"
-                                       Height="360"
-                                       Stretch="Uniform"/>
-                            </Border>
-
-                            <Border HorizontalAlignment="Right"
-                                    VerticalAlignment="Top"
-                                    Margin="8"
-                                    Style="{StaticResource CardOverlayChipStyle}">
-                                <CheckBox HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          IsChecked="True"/>
-                            </Border>
-                        </Grid>
-
-                        <StackPanel Grid.Row="2">
-                            <TextBlock Text="Falkenrath Aristocrat"
-                                       Style="{StaticResource CardTitleTextStyle}"/>
-
-                            <TextBlock Text="Dark Ascension"
-                                       Margin="0,8,0,0"
-                                       Style="{StaticResource CardSecondaryTextStyle}"/>
-
-                            <TextBlock Text="Price 0,15 €"
-                                       Margin="0,10,0,0"
-                                       Style="{StaticResource CardPriceTextStyle}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-                <!-- CARD 3 SELECTED -->
-                <Border Style="{StaticResource HoverSelectedSearchCardStyle}">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="14"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <Grid Grid.Row="0">
-                            <Border Style="{StaticResource CardImageContainerStyle}">
-                                <Image Source="https://cards.scryfall.io/normal/front/1/0/10b3a5d4.jpg"
-                                       Height="360"
-                                       Stretch="Uniform"/>
-                            </Border>
-
-                            <Border HorizontalAlignment="Right"
-                                    VerticalAlignment="Top"
-                                    Margin="8"
-                                    Style="{StaticResource SelectedCardOverlayChipStyle}">
-                                <CheckBox HorizontalAlignment="Center"
-                                          VerticalAlignment="Center"
-                                          IsChecked="True"/>
-                            </Border>
-                        </Grid>
-
-                        <StackPanel Grid.Row="2">
-                            <TextBlock Text="Falkenrath Aristocrat"
-                                       Style="{StaticResource CardTitleTextStyle}"/>
-
-                            <TextBlock Text="Double Masters"
-                                       Margin="0,8,0,0"
-                                       Style="{StaticResource CardSecondaryTextStyle}"/>
-
-                            <TextBlock Text="Price 0,15 €"
-                                       Margin="0,10,0,0"
-                                       Style="{StaticResource CardPriceTextStyle}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-            </WrapPanel>
+                                            <TextBlock Margin="0,10,0,0"
+                                               Style="{StaticResource CardPriceTextStyle}">
+                                        <Run Text="Price "/>
+                                        <Run Text="{Binding Price}"/>
+                                        <Run Text=" €"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
         </ScrollViewer>
 
         <!-- FOOTER -->
         <Border Grid.Row="4"
-                Style="{StaticResource SectionPanelStyle}"
-                Padding="18">
+        Style="{StaticResource SectionPanelStyle}"
+        Padding="18">
 
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -193,40 +137,44 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
+                    Orientation="Horizontal"
+                    VerticalAlignment="Center">
                     <TextBlock Text="Selected variants:"
-                               Foreground="{StaticResource BrushTextSecondary}"
-                               FontSize="14"
-                               VerticalAlignment="Center"/>
+                       Foreground="{StaticResource BrushTextSecondary}"
+                       FontSize="14"
+                       VerticalAlignment="Center"/>
 
-                    <TextBlock Text=" 2"
-                               Foreground="{StaticResource BrushTextPrimary}"
-                               FontSize="16"
-                               FontWeight="Bold"
-                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding SelectedVariantsCount}"
+                       Margin="6,0,0,0"
+                       Foreground="{StaticResource BrushTextPrimary}"
+                       FontSize="16"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <TextBlock Grid.Column="1"
-                           Margin="0,0,10,0"
-                           VerticalAlignment="Center"
-                           Text="Desired quantity"
-                           Foreground="{StaticResource BrushTextPrimary}"
-                           FontSize="14"
-                           FontWeight="SemiBold"/>
+                   Margin="0,0,10,0"
+                   VerticalAlignment="Center"
+                   Text="Desired quantity"
+                   Foreground="{StaticResource BrushTextPrimary}"
+                   FontSize="14"
+                   FontWeight="SemiBold"/>
 
                 <TextBox Grid.Column="2"
-                         Width="72"
-                         Margin="0,0,18,0"
-                         Style="{StaticResource SearchTextBoxStyle}"
-                         Text="2"
-                         HorizontalContentAlignment="Center"/>
+                 Width="72"
+                 Margin="0,0,18,0"
+                 Style="{StaticResource SearchTextBoxStyle}"
+                 Text="{Binding SelectedQuantity, UpdateSourceTrigger=PropertyChanged}"
+                 HorizontalContentAlignment="Center"/>
 
                 <Button Grid.Column="3"
-                        MinWidth="150"
-                        Content="Save Selection"
-                        Style="{StaticResource PrimaryButtonStyle}"/>
+                MinWidth="150"
+                Content="Save Selection"
+                Style="{StaticResource PrimaryButtonStyle}"
+                Command="{Binding SaveSelectionCommand}"
+                IsEnabled="{Binding CanSaveSelection}"/>
             </Grid>
         </Border>
+
     </Grid>
 </UserControl>

@@ -149,28 +149,33 @@ public class WantedCardsViewModel : ViewModelBase
         Groups.Clear();
     }
 
-    public void AddOrMergeGroup(WantedCardGroup incomingGroup)
+    //public void AddOrMergeGroup(WantedCardGroup incomingGroup)
+    //{
+    //    var existingGroup = Groups.FirstOrDefault(g => g.CardName == incomingGroup.CardName);
+
+    //    if (existingGroup == null)
+    //    {
+    //        Groups.Add(incomingGroup);
+    //        return;
+    //    }
+
+    //    existingGroup.DesiredQuantity += incomingGroup.DesiredQuantity;
+
+    //    foreach (var variant in incomingGroup.Variants)
+    //    {
+    //        var exists = existingGroup.Variants.Any(v =>
+    //            v.SetName == variant.SetName &&
+    //            v.ProductUrl == variant.ProductUrl);
+
+    //        if (!exists)
+    //        {
+    //            existingGroup.Variants.Add(variant);
+    //        }
+    //    }
+    //}
+
+    public async Task ReloadAsync()
     {
-        var existingGroup = Groups.FirstOrDefault(g => g.CardName == incomingGroup.CardName);
-
-        if (existingGroup == null)
-        {
-            Groups.Add(incomingGroup);
-            return;
-        }
-
-        existingGroup.DesiredQuantity += incomingGroup.DesiredQuantity;
-
-        foreach (var variant in incomingGroup.Variants)
-        {
-            var exists = existingGroup.Variants.Any(v =>
-                v.SetName == variant.SetName &&
-                v.ProductUrl == variant.ProductUrl);
-
-            if (!exists)
-            {
-                existingGroup.Variants.Add(variant);
-            }
-        }
+        await InitializeAsync();
     }
 }
