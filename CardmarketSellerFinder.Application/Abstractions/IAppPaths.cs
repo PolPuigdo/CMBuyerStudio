@@ -6,4 +6,6 @@ public interface IAppPaths
     string CachePath { get; }
     string ReportsPath { get; }
     string LogsPath { get; }
+    string CardsCachePath { get; }
+    string ImageCardsPath { get; }
 }
