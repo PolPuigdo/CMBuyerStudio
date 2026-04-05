@@ -9,6 +9,9 @@ public class SearchCardResult : INotifyPropertyChanged
     private string _setName = string.Empty;
     private string _productUrl = string.Empty;
     private decimal? _price;
+    private string _imageUrl = string.Empty;
+    private string _imagePath = string.Empty;
+     public SearchCardResult() { }
     private bool _isSelected;
 
     public string CardName
@@ -33,6 +36,49 @@ public class SearchCardResult : INotifyPropertyChanged
     {
         get => _price;
         set => SetField(ref _price, value);
+    }
+
+    public string ImageUrl
+    {
+        get => _imageUrl;
+        set
+        {
+            if (SetField(ref _imageUrl, value))
+            {
+                OnPropertyChanged(nameof(DisplayImageUri));
+            }
+        }
+    }
+
+    public string ImagePath
+    {
+        get => _imagePath;
+        set
+        {
+            if (SetField(ref _imagePath, value))
+            {
+                OnPropertyChanged(nameof(DisplayImageUri));
+            }
+        }
+    }
+
+    public Uri? DisplayImageUri
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(ImagePath) && File.Exists(ImagePath))
+            {
+                return new Uri(ImagePath, UriKind.Absolute);
+            }
+
+            if (!string.IsNullOrWhiteSpace(ImageUrl) &&
+                Uri.TryCreate(ImageUrl, UriKind.Absolute, out var remoteUri))
+            {
+                return remoteUri;
+            }
+
+            return null;
+        }
     }
 
     public bool IsSelected

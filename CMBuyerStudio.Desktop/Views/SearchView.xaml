@@ -84,9 +84,9 @@
 
                                         <Grid Grid.Row="0">
                                             <Border Style="{StaticResource CardImageContainerStyle}">
-                                                <Image Source="https://cards.scryfall.io/normal/front/1/0/10b3a5d4.jpg"
-                                               Height="360"
-                                               Stretch="Uniform"/>
+                                                <Image Source="{Binding DisplayImageUri}"
+                                                   Height="360"
+                                                   Stretch="Uniform"/>
                                             </Border>
 
                                             <Border HorizontalAlignment="Right"
