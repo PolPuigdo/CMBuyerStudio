@@ -17,6 +17,8 @@ public sealed class AppPaths : IAppPaths
 
     public string CardsPath => Path.Combine(_basePath, "cards.json");
     public string CachePath => Path.Combine(_basePath, "Cache");
+    public string CardsCachePath => Path.Combine(CachePath, "CardsCache");
+    public string ImageCardsPath => Path.Combine(CachePath, "CardsImages");
     public string ReportsPath => Path.Combine(_basePath, "Reports");
     public string LogsPath => Path.Combine(_basePath, "Logs");
 
@@ -29,5 +31,9 @@ public sealed class AppPaths : IAppPaths
         Directory.CreateDirectory(CachePath);
         Directory.CreateDirectory(ReportsPath);
         Directory.CreateDirectory(LogsPath);
+
+        //Cache subdirectories
+        Directory.CreateDirectory(CardsCachePath);
+        Directory.CreateDirectory(ImageCardsPath);
     }
 }
