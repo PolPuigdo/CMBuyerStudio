@@ -54,13 +54,20 @@ namespace CMBuyerStudio.Application.Services
                     continue;
                 }
 
-                var imageName = parsed.CardName+"_"+parsed.SetName;
-
                 cards[parsed.ProductUrl] = parsed;
             }
 
-            // image download loop
-            parsed.ImagePath = await _imageCacheService.GetOrDownloadAsync(parsed.ImageUrl, imageName);
+            await Parallel.ForEachAsync(cards.Values,
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = 4,
+                    CancellationToken = cancellationToken
+                },
+                async (card, ct) =>
+                {
+                    var imageName = $"{card.CardName}_{card.SetName}";
+                    card.ImagePath = await _imageCacheService.GetOrDownloadAsync(card.ImageUrl, imageName, ct);
+                });
 
             await playwright.DisposeAsync();
 

@@ -2,10 +2,14 @@
 using CMBuyerStudio.Application.Services;
 using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
+using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
+using CMBuyerStudio.Infrastructure.Cardmarket.Cache;
+using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using CMBuyerStudio.Infrastructure.Paths;
 using CMBuyerStudio.Persistence.Search;
 using CMBuyerStudio.Persistence.WantedCards;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http.Headers;
 
 namespace CMBuyerStudio.Desktop.Composition;
 
@@ -35,15 +39,37 @@ public static class ServiceRegistration
 
     public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
+        services.AddSingleton<IAppPaths, AppPaths>();
+
+        services.AddSingleton<PlaywrightBuilder>();
+        services.AddSingleton<PlaywrightParser>();
+
+        services.AddHttpClient<ICardImageCacheService, CardImageCacheService>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(25);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CMBuyerStudio/1.0");
+
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("image/avif"));
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("image/webp"));
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("image/*"));
+            client.DefaultRequestHeaders.Accept.Add(
+                new MediaTypeWithQualityHeaderValue("*/*", 0.8));
+
+            client.DefaultRequestHeaders.Referrer = new Uri("https://www.cardmarket.com/");
+        });
+
+        services.AddSingleton<ICardSearchService, CardSearchService>();
 
         return services;
     }
 
     public static IServiceCollection AddPersistence(this IServiceCollection services)
     {
-        services.AddSingleton<IAppPaths, AppPaths>();
         services.AddSingleton<IWantedCardsRepository, JsonWantedCardsRepository>();
-        services.AddSingleton<ICardSearchService, FakeCardSearchService>();
         return services;
     }
 
