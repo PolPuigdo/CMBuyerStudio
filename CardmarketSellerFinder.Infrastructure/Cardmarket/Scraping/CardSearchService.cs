@@ -5,7 +5,7 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Helpers;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using Microsoft.Playwright;
 
-namespace CMBuyerStudio.Application.Services
+namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 {
     public class CardSearchService : ICardSearchService
     {

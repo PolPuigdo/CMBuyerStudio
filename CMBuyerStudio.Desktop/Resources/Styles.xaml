@@ -228,7 +228,7 @@
         <Style.Triggers>
             <DataTrigger Binding="{Binding IsSelected}" Value="True">
                 <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
-                <Setter Property="BorderThickness" Value="2"/>
+                <Setter Property="BorderThickness" Value="3"/>
                 <Setter Property="Background" Value="#1B2230"/>
             </DataTrigger>
 

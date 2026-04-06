@@ -5,9 +5,11 @@ using CMBuyerStudio.Desktop.Views;
 using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
 using CMBuyerStudio.Infrastructure.Cardmarket.Cache;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
+using CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
 using CMBuyerStudio.Infrastructure.Paths;
 using CMBuyerStudio.Persistence.Search;
 using CMBuyerStudio.Persistence.WantedCards;
+using CMBuyerStudio.Reporting;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http.Headers;
 
@@ -62,6 +64,8 @@ public static class ServiceRegistration
             client.DefaultRequestHeaders.Referrer = new Uri("https://www.cardmarket.com/");
         });
 
+        services.AddSingleton<IMarketDataCacheService, MarketDataCacheService>();
+
         services.AddSingleton<ICardSearchService, CardSearchService>();
 
         return services;
@@ -75,6 +79,7 @@ public static class ServiceRegistration
 
     public static IServiceCollection AddReporting(this IServiceCollection services)
     {
+        services.AddSingleton<IHtmlReportGenerator, HtmlReportGenerator>();
 
         return services;
     }

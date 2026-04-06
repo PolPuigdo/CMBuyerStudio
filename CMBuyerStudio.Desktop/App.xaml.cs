@@ -19,6 +19,7 @@ public partial class App : System.Windows.Application
                 services.AddPersistence();
                 services.AddApplication();
                 services.AddInfrastructure();
+                services.AddReporting();
                 services.AddDesktop();
             })
             .Build();

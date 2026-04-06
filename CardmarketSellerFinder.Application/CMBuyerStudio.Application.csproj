@@ -10,8 +10,4 @@
     <ProjectReference Include="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="UseCases\" />
-  </ItemGroup>
-
 </Project>
