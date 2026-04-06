@@ -57,6 +57,34 @@ public sealed class WantedCardsService : IWantedCardsService
         await AddOrMergeAsync(new List<WantedCardGroup> { group }, cancellationToken);
     }
 
+    public async Task AddOrReplaceAsync(IEnumerable<WantedCardGroup> groups, CancellationToken cancellationToken = default)
+    {
+        var existingGroups = (await _wantedCardsRepository.GetAllAsync(cancellationToken)).ToList();
+
+        foreach (var incomingGroup in groups)
+        {
+            var existingIndex = existingGroups.FindIndex(g =>
+                string.Equals(g.CardName, incomingGroup.CardName, StringComparison.OrdinalIgnoreCase));
+
+            if (existingIndex < 0)
+            {
+                existingGroups.Add(CloneGroup(incomingGroup));
+                continue;
+            }
+
+            existingGroups[existingIndex] = CloneGroup(incomingGroup);
+        }
+
+        await _wantedCardsRepository.SaveAllAsync(existingGroups, cancellationToken);
+    }
+
+    public async Task AddOrReplaceAsync(WantedCardGroup? group, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        await AddOrReplaceAsync(new[] { group }, cancellationToken);
+    }
+
     private static WantedCardGroup CloneGroup(WantedCardGroup source)
     {
         return new WantedCardGroup

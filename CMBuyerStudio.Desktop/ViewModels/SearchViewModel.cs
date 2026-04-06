@@ -234,7 +234,7 @@ public sealed class SearchViewModel : ViewModelBase
                 Variants = new ObservableCollection<WantedCardVariant>(selectedVariants)
             };
 
-            await _wantedCardsService.AddOrMergeAsync(wantedGroup);
+            await _wantedCardsService.AddOrReplaceAsync(wantedGroup);
             await _wantedCardsViewModel.ReloadAsync();
 
             foreach (var variant in Results)
