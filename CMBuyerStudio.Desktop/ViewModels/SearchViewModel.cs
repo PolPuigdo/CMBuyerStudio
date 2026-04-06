@@ -87,6 +87,7 @@ public sealed class SearchViewModel : ViewModelBase
     public ICommand SearchCommand { get; }
     public ICommand SaveSelectionCommand { get; }
     public ICommand SelectAllCommand { get; }
+    public ICommand ToggleSelectionCommand { get; }
 
     public SearchViewModel(
         ICardSearchService cardSearchService,
@@ -100,6 +101,15 @@ public sealed class SearchViewModel : ViewModelBase
         SearchCommand = new RelayCommand(async _ => await SearchAsync());
         SaveSelectionCommand = new RelayCommand(async _ => await SaveSelectionAsync());
         SelectAllCommand = new RelayCommand(_ => SelectAll());
+        ToggleSelectionCommand = new RelayCommand(parameter =>
+        {
+            if (parameter is not SearchCardResult variant)
+            {
+                return;
+            }
+
+            variant.IsSelected = !variant.IsSelected;
+        });
 
         Results.CollectionChanged += OnResultsCollectionChanged;
     }

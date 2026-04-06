@@ -26,4 +26,11 @@
     <SolidColorBrush x:Key="BrushTextSecondary" Color="{StaticResource ColorTextSecondary}"/>
     <SolidColorBrush x:Key="BrushAccent" Color="{StaticResource ColorAccent}"/>
 
+    <!-- Search selection -->
+    <Color x:Key="ColorSelectionCheck">#CC6EA8FE</Color>
+    <Color x:Key="ColorSelectionCheckOutline">#CC000000</Color>
+
+    <SolidColorBrush x:Key="BrushSelectionCheck" Color="{StaticResource ColorSelectionCheck}"/>
+    <SolidColorBrush x:Key="BrushSelectionCheckOutline" Color="{StaticResource ColorSelectionCheckOutline}"/>
+
 </ResourceDictionary>

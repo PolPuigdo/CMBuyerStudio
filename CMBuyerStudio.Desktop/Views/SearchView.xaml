@@ -79,7 +79,13 @@
 
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Style="{StaticResource HoverSearchCardStyle}">
+                                <Border Style="{StaticResource InteractiveSearchCardStyle}">
+                                    <Border.InputBindings>
+                                        <MouseBinding MouseAction="LeftClick"
+                                          Command="{Binding DataContext.ToggleSelectionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          CommandParameter="{Binding}" />
+                                    </Border.InputBindings>
+
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
@@ -94,14 +100,14 @@
                                                    Stretch="Uniform"/>
                                             </Border>
 
-                                            <Border HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            Margin="8"
-                                            Style="{StaticResource CardOverlayChipStyle}">
-                                                <CheckBox HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center"
-                                                  IsChecked="{Binding IsSelected, Mode=TwoWay}"/>
-                                            </Border>
+                                            <Grid Style="{StaticResource SearchCardSelectionOverlayStyle}">
+                                                <Viewbox Width="110" Height="110" Margin="0,0,0,100">
+                                                    <Grid Width="100" Height="100">
+                                                        <Path Style="{StaticResource SearchCardSelectionCheckOutlineStyle}"/>
+                                                        <Path Style="{StaticResource SearchCardSelectionCheckStyle}"/>
+                                                    </Grid>
+                                                </Viewbox>
+                                            </Grid>
                                         </Grid>
 
                                         <StackPanel Grid.Row="2">

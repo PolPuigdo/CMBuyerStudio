@@ -219,4 +219,74 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Interactable card selection search -->
+    <Style x:Key="InteractiveSearchCardStyle"
+   TargetType="Border"
+   BasedOn="{StaticResource SearchCardStyle}">
+        <Setter Property="Cursor" Value="Hand"/>
+
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                <Setter Property="BorderThickness" Value="2"/>
+                <Setter Property="Background" Value="#1B2230"/>
+            </DataTrigger>
+
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsMouseOver}" Value="True"/>
+                    <Condition Binding="{Binding IsSelected}" Value="False"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="BorderBrush" Value="#3A455C"/>
+                <Setter Property="Background" Value="#1B2230"/>
+            </MultiDataTrigger>
+
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding RelativeSource={RelativeSource Self}, Path=IsMouseOver}" Value="True"/>
+                    <Condition Binding="{Binding IsSelected}" Value="True"/>
+                </MultiDataTrigger.Conditions>
+                <Setter Property="BorderBrush" Value="#6A93FF"/>
+                <Setter Property="Background" Value="#1B2230"/>
+            </MultiDataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Checkbox selection search -->
+    <Geometry x:Key="SearchCardSelectionCheckGeometry">
+        M 16 54 L 40 78 L 84 24
+    </Geometry>
+
+    <Style x:Key="SearchCardSelectionOverlayStyle" TargetType="Grid">
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Panel.ZIndex" Value="2"/>
+        <Setter Property="IsHitTestVisible" Value="False"/>
+        <Setter Property="Visibility" Value="Collapsed"/>
+
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="Visibility" Value="Visible"/>
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="SearchCardSelectionCheckOutlineStyle" TargetType="Path">
+        <Setter Property="Data" Value="{StaticResource SearchCardSelectionCheckGeometry}"/>
+        <Setter Property="Stroke" Value="{StaticResource BrushSelectionCheckOutline}"/>
+        <Setter Property="StrokeThickness" Value="18"/>
+        <Setter Property="StrokeStartLineCap" Value="Round"/>
+        <Setter Property="StrokeEndLineCap" Value="Round"/>
+        <Setter Property="StrokeLineJoin" Value="Round"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <Style x:Key="SearchCardSelectionCheckStyle"
+       TargetType="Path"
+       BasedOn="{StaticResource SearchCardSelectionCheckOutlineStyle}">
+        <Setter Property="Stroke" Value="{StaticResource BrushSelectionCheck}"/>
+        <Setter Property="StrokeThickness" Value="10"/>
+        <Setter Property="Opacity" Value="1"/>
+    </Style>
+
 </ResourceDictionary>
