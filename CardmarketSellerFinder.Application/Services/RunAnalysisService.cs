@@ -63,13 +63,9 @@ namespace CMBuyerStudio.Application.Services
             // Scrap not cached cards
             var scrapedMarketData = new List<MarketCardData>();
 
-            foreach (var target in targetsToScrape)
+            await foreach (var marketData in _cardMarketScraper.ScrapeManyAsync(targetsToScrape, cancellationToken))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var marketData = await _cardMarketScraper.ScrapeAsync(target, cancellationToken);
                 scrapedMarketData.Add(marketData);
-
                 await _marketDataCacheService.SaveAsync(marketData, cancellationToken);
             }
 

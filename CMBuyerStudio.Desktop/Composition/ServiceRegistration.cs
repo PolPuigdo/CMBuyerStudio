@@ -6,12 +6,13 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
 using CMBuyerStudio.Infrastructure.Cardmarket.Cache;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
+using CMBuyerStudio.Infrastructure.Options;
 using CMBuyerStudio.Infrastructure.Paths;
-using CMBuyerStudio.Persistence.Search;
 using CMBuyerStudio.Persistence.WantedCards;
 using CMBuyerStudio.Reporting;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http.Headers;
+using Microsoft.Extensions.Configuration;
 
 namespace CMBuyerStudio.Desktop.Composition;
 
@@ -39,9 +40,11 @@ public static class ServiceRegistration
         return services;
     }
 
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<IAppPaths, AppPaths>();
+
+        services.Configure<ScrapingOptions>(configuration.GetSection(ScrapingOptions.SectionName));
 
         services.AddSingleton<PlaywrightBuilder>();
         services.AddSingleton<PlaywrightParser>();
