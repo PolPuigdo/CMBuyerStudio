@@ -101,7 +101,7 @@
                                             </Border>
 
                                             <Grid Style="{StaticResource SearchCardSelectionOverlayStyle}">
-                                                <Viewbox Width="110" Height="110" Margin="0,0,0,100">
+                                                <Viewbox Width="80" Height="80" Margin="0,0,0,100">
                                                     <Grid Width="100" Height="100">
                                                         <Path Style="{StaticResource SearchCardSelectionCheckOutlineStyle}"/>
                                                         <Path Style="{StaticResource SearchCardSelectionCheckStyle}"/>
