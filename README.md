@@ -1,146 +1,247 @@
 # CMBuyerStudio
 
-Aplicacion de escritorio para Windows orientada a buscar cartas de **Magic: The Gathering** en **Cardmarket**, comparar variantes rapidamente y construir una lista de compra guardada para consultarla y mantenerla organizada.
+> Smart card search and wishlist management for **Magic: The Gathering** buyers on **Cardmarket**.
 
-## Que es CMBuyerStudio
+<p align="center">
+  <strong>Search faster.</strong> • <strong>Compare variants.</strong> • <strong>Build your wanted list.</strong>
+</p>
 
-CMBuyerStudio esta pensado para quien compra cartas en Cardmarket y quiere:
+---
 
-- buscar una carta y ver sus variantes disponibles;
-- revisar rapidamente set, precio e imagen;
-- seleccionar solo las versiones que le interesan;
-- guardar una lista deseada con cantidades objetivo;
-- mantener esa lista persistida entre sesiones.
+## 📚 Table of Contents
 
-La aplicacion no intenta ser un visor tecnico del proyecto, sino una herramienta practica para preparar compras de cartas de forma mas comoda.
+- [✨ Overview](#-overview)
+- [🚀 What You Can Do](#-what-you-can-do)
+- [🧭 How It Works](#-how-it-works)
+- [🖥️ Main Screens](#️-main-screens)
+- [💾 Where Your Data Is Stored](#-where-your-data-is-stored)
+- [📋 Requirements](#-requirements)
+- [▶️ Getting Started](#️-getting-started)
+- [⚠️ Current Limitations](#️-current-limitations)
+- [🛣️ Current Project Status](#️-current-project-status)
+- [❤️ Why This Project Is Useful](#️-why-this-project-is-useful)
 
-## Estado actual
+---
 
-El proyecto ya permite usar el flujo principal de trabajo:
+## ✨ Overview
 
-- buscar cartas en Cardmarket;
-- seleccionar variantes concretas;
-- guardar grupos de cartas deseadas;
-- editar cantidades;
-- eliminar variantes o grupos completos;
-- conservar la informacion guardada automaticamente.
+**CMBuyerStudio** is a Windows desktop app built for people who buy **Magic: The Gathering singles** on **Cardmarket** and want a cleaner, faster way to prepare their purchases.
 
-Ahora mismo las secciones **Run**, **Settings** y **Logs** aparecen en la interfaz, pero todavia estan en desarrollo y no ofrecen funcionalidad real.
+Instead of manually juggling searches, set names, prices, and acceptable versions, the app helps you:
 
-## Que puede hacer hoy
+- 🔎 search a card directly on Cardmarket;
+- 🃏 review available variants;
+- 💶 compare prices at a glance;
+- ✅ choose the versions you actually want;
+- 📦 assign a desired quantity;
+- 💾 save everything into a persistent wanted list.
 
-### 1. Buscar cartas en Cardmarket
+In short: **it helps you organize what you want to buy before making your final purchase decisions.**
 
-Desde la pantalla de busqueda puedes escribir el nombre de una carta y lanzar la consulta. La aplicacion obtiene resultados desde Cardmarket para la categoria de **Singles de Magic**.
+---
 
-Cada resultado muestra:
+## 🚀 What You Can Do
 
-- nombre de la carta;
-- expansion o set;
-- precio;
-- imagen de referencia;
-- selector para marcar la variante.
+### ✅ Search cards on Cardmarket
 
-Los resultados se ordenan por precio para facilitar una comparacion rapida.
+Type a card name and the app fetches matching **Magic singles** from Cardmarket.
 
-### 2. Seleccionar variantes concretas
+Each result can show:
 
-Puedes marcar una o varias versiones de la misma carta. Esto es util cuando:
+- **Card name**
+- **Set / expansion**
+- **Price**
+- **Preview image**
+- **Selection checkbox**
 
-- te sirven varias expansiones;
-- quieres limitarte a ciertos sets;
-- quieres preparar una lista flexible segun el precio.
+Results are automatically sorted by **price**, which makes comparison faster and more practical.
 
-Tambien existe un boton de **Select All** para marcar todos los resultados visibles.
+### ✅ Select the variants you actually accept
 
-### 3. Guardar una lista deseada
+Not every version of a card is equally interesting. Sometimes you only want:
 
-Una vez seleccionadas las variantes, puedes indicar la **cantidad deseada** y guardar la seleccion.
+- a specific set;
+- the cheapest acceptable versions;
+- a few selected printings;
+- a more flexible pool of options before buying.
 
-La aplicacion agrupa la carta por nombre y guarda dentro de ese grupo las variantes permitidas. Si vuelves a guardar la misma carta:
+CMBuyerStudio lets you mark one or multiple variants and save only the ones you care about.
 
-- la cantidad deseada se suma;
-- las variantes nuevas se anaden;
-- las variantes duplicadas no se repiten.
+### ✅ Build a persistent wanted list
 
-### 4. Gestionar las cartas deseadas
+After selecting the variants you want, you can set a **desired quantity** and save them into your personal list.
 
-En la pantalla **Wanted Cards** puedes:
+If you save the same card again:
 
-- ver todos los grupos guardados;
-- cambiar la cantidad deseada de cada carta;
-- quitar variantes concretas;
-- eliminar un grupo completo;
-- vaciar toda la lista.
+- the quantity is **added** to the existing total;
+- new variants are **merged in**;
+- duplicate variants are **not repeated**.
 
-Los cambios se guardan automaticamente.
+### ✅ Manage your saved wanted cards
 
-## Flujo de uso recomendado
+Inside the **Wanted Cards** section, you can:
 
-1. Abre la aplicacion.
-2. Entra en **Search**.
-3. Busca una carta por nombre.
-4. Marca las variantes que aceptarias comprar.
-5. Indica la cantidad deseada.
-6. Pulsa **Save Selection**.
-7. Ve a **Wanted Cards** para revisar o ajustar tu lista.
+- edit desired quantities;
+- remove individual variants;
+- delete an entire card group;
+- clear the whole wanted list.
 
-Este es, a dia de hoy, el flujo principal y plenamente util del proyecto.
+All changes are saved automatically, so your list stays available between sessions.
 
-## Como funciona a nivel de usuario
+---
 
-Cuando haces una busqueda, la aplicacion abre una sesion automatizada del navegador para consultar Cardmarket y extraer los resultados visibles. Despues descarga y guarda en cache las imagenes encontradas para que la experiencia sea mas comoda en usos posteriores.
+## 🧭 How It Works
 
-La lista de cartas deseadas se guarda en tu equipo, por lo que al cerrar y volver a abrir la app no pierdes el trabajo.
+The current recommended flow is very simple:
 
-## Datos que guarda la aplicacion
+1. Open the app.
+2. Go to **Search**.
+3. Enter a card name.
+4. Review the results.
+5. Select the versions you would be willing to buy.
+6. Choose the quantity you want.
+7. Click **Save Selection**.
+8. Open **Wanted Cards** to review and refine your list.
 
-CMBuyerStudio crea una carpeta propia dentro de:
+This is the **main working flow of the project today**.
 
-`%LOCALAPPDATA%\CMBuyerStudio`
+---
 
-Dentro de esa ruta guarda principalmente:
+## 🖥️ Main Screens
 
-- `cards.json`: tu lista de cartas deseadas;
-- `Cache\CardsImages`: imagenes descargadas de las cartas;
-- `Reports`: carpeta reservada para futuras funciones;
-- `Logs`: carpeta reservada para futuras funciones.
+### 🔍 Search
 
-## Requisitos
+This is the most important screen right now.
 
-Para el usuario final, lo importante es esto:
+Here you can:
 
-- **Windows**: la app es una aplicacion de escritorio WPF y esta orientada a este sistema;
-- **Conexion a internet**: necesaria para buscar resultados en Cardmarket;
-- **Acceso a Cardmarket**: si Cardmarket cambia su estructura o bloquea la consulta, la busqueda podria verse afectada.
+- search a card by name;
+- browse found variants;
+- select one, many, or all results;
+- save selected variants with a desired quantity.
 
-## Instalacion y arranque
+### 🃏 Wanted Cards
 
-### Opcion recomendada
+This is your saved buying list.
 
-Si el repositorio publica una version en **Releases**, lo ideal es descargar esa version y ejecutar la aplicacion directamente.
+Here you can:
 
-### Si no hay release publicada
+- review saved card groups;
+- update quantities;
+- remove unwanted variants;
+- delete full groups;
+- clear the full list if needed.
 
-El proyecto sigue en una fase temprana. En ese caso, el uso queda mas orientado a ejecutar la aplicacion desde el propio codigo fuente, algo mas tecnico y menos pensado para usuario final.
+### ▶️ Run
 
-## Limitaciones actuales
+Currently visible in the UI, but **not implemented yet**.
 
-Conviene tener en cuenta estas limitaciones para usar la app con expectativas realistas:
+### ⚙️ Settings
 
-- solo trabaja con cartas de **Magic** dentro de Cardmarket;
-- el foco actual esta en buscar, seleccionar y guardar cartas;
-- **Run**, **Settings** y **Logs** aun no estan implementados;
-- no realiza la compra automaticamente;
-- depende de que Cardmarket siga mostrando los datos con una estructura compatible.
+Currently visible in the UI, but **not implemented yet**.
 
-## En resumen
+### 📄 Logs
 
-CMBuyerStudio ya es util como herramienta para preparar una compra:
+Currently visible in the UI, but **not implemented yet**.
 
-- buscas una carta;
-- eliges que variantes te interesan;
-- guardas cantidad y sets aceptados;
-- mantienes tu lista organizada entre sesiones.
+---
 
-Si tu objetivo es construir una lista de compra de Magic de forma visual y comoda antes de decidir que comprar en Cardmarket, esa parte del proyecto ya aporta valor.
+## 💾 Where Your Data Is Stored
+
+The app stores its local data inside:
+
+```text
+%LOCALAPPDATA%\CMBuyerStudio
+```
+
+Important files and folders:
+
+- `cards.json` → your saved wanted list
+- `Cache\CardsImages` → downloaded card images
+- `Reports` → reserved for future features
+- `Logs` → reserved for future features
+
+This means your saved list remains on your computer even after closing the app.
+
+---
+
+## 📋 Requirements
+
+For end users, the practical requirements are:
+
+- **Windows**
+- **Internet connection**
+- **Access to Cardmarket**
+
+Because the search depends on Cardmarket data, changes on Cardmarket's side may affect search behavior in the future.
+
+---
+
+## ▶️ Getting Started
+
+### Best option for end users
+
+If the repository provides a **Release**, the easiest path is:
+
+1. Download the published version from GitHub Releases.
+2. Launch the application.
+3. Start using **Search** and **Wanted Cards**.
+
+### If there is no Release yet
+
+The project is still in an early phase. In that case, running it may require launching it from the source code, which is more technical and less convenient for non-technical users.
+
+---
+
+## ⚠️ Current Limitations
+
+To keep expectations realistic, here are the current limits of the app:
+
+- it currently focuses on **Magic: The Gathering singles** on Cardmarket;
+- the core implemented flow is **searching, selecting, and saving wanted cards**;
+- **Run**, **Settings**, and **Logs** are still placeholders;
+- the app does **not** automatically buy cards for you;
+- functionality may be affected if Cardmarket changes its page structure.
+
+---
+
+## 🛣️ Current Project Status
+
+### What is already working
+
+- ✅ Card search
+- ✅ Variant selection
+- ✅ Quantity selection
+- ✅ Wanted list persistence
+- ✅ Editing saved groups
+- ✅ Removing variants and groups
+
+### What is still in progress
+
+- 🚧 Run workflow
+- 🚧 Settings screen
+- 🚧 Logs screen
+- 🚧 More advanced buying/reporting features
+
+---
+
+## ❤️ Why This Project Is Useful
+
+Buying cards often means balancing:
+
+- different printings;
+- different prices;
+- acceptable sets;
+- quantities you still need.
+
+**CMBuyerStudio turns that messy manual process into a clearer workflow.**
+
+Instead of repeatedly searching the same cards and remembering which versions were acceptable, you can keep a structured wanted list and come back to it whenever you need.
+
+---
+
+## Final Summary
+
+If your goal is to **search cards, compare versions, and maintain a practical wanted list for Cardmarket**, CMBuyerStudio already delivers value today.
+
+It is especially useful if you want a tool that feels more focused on **buying preparation** than on raw browsing.
