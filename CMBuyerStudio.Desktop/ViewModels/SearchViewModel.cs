@@ -202,27 +202,29 @@ public sealed class SearchViewModel : ViewModelBase
 
         try
         {
-            var selectedGroups = Results
+            var searchText = SearchText?.Trim();
+
+            var selectedVariants = Results
                 .Where(v => v.IsSelected)
-                .GroupBy(v => v.CardName)
-                .Select(group => new WantedCardGroup
+                .Select(v => new WantedCardVariant
                 {
-                    CardName = group.Key,
-                    DesiredQuantity = SelectedQuantity,
-                    Variants = new ObservableCollection<WantedCardVariant>(
-                        group.Select(v => new WantedCardVariant
-                        {
-                            SetName = v.SetName,
-                            ProductUrl = v.ProductUrl,
-                            Price = v.Price
-                        }))
+                    SetName = v.SetName,
+                    ProductUrl = v.ProductUrl,
+                    Price = v.Price
                 })
                 .ToList();
 
-            if (selectedGroups.Count == 0)
+            if (selectedVariants.Count == 0)
                 return;
 
-            await _wantedCardsService.AddOrMergeAsync(selectedGroups);
+            var wantedGroup = new WantedCardGroup
+            {
+                CardName = searchText ?? string.Empty,
+                DesiredQuantity = SelectedQuantity,
+                Variants = new ObservableCollection<WantedCardVariant>(selectedVariants)
+            };
+
+            await _wantedCardsService.AddOrMergeAsync(wantedGroup);
             await _wantedCardsViewModel.ReloadAsync();
 
             foreach (var variant in Results)

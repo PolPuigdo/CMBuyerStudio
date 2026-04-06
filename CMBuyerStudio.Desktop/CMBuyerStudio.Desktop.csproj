@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Assets\cardImageNotAvailable.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj" />
     <ProjectReference Include="..\CardmarketSellerFinder.Infrastructure\CMBuyerStudio.Infrastructure.csproj" />
     <ProjectReference Include="..\CardmarketSellerFinder.Persistence\CMBuyerStudio.Persistence.csproj" />
@@ -21,6 +25,10 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
 	<PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Images\cardImageNotAvailable.png" />
   </ItemGroup>
 
 </Project>

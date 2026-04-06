@@ -10,7 +10,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Builders
             var playwright = await Microsoft.Playwright.Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                Headless = true,
+                Headless = headless,
                 Proxy = proxy
             });
             var context = await browser.NewContextAsync();
@@ -23,7 +23,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Builders
             var playwright = await Microsoft.Playwright.Playwright.CreateAsync();
             var browser = await playwright.Firefox.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                Headless = true,
+                Headless = headless,
                 Proxy = proxy
             });
             var context = await browser.NewContextAsync();

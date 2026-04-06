@@ -55,7 +55,7 @@ namespace CMBuyerStudio.Application.Services
                 }
 
                 cards[parsed.ProductUrl] = parsed;
-            }
+            }  
 
             await Parallel.ForEachAsync(cards.Values,
                 new ParallelOptions

@@ -41,44 +41,13 @@ public class SearchCardResult : INotifyPropertyChanged
     public string ImageUrl
     {
         get => _imageUrl;
-        set
-        {
-            if (SetField(ref _imageUrl, value))
-            {
-                OnPropertyChanged(nameof(DisplayImageUri));
-            }
-        }
+        set => SetField(ref _imageUrl, value);
     }
 
     public string ImagePath
     {
         get => _imagePath;
-        set
-        {
-            if (SetField(ref _imagePath, value))
-            {
-                OnPropertyChanged(nameof(DisplayImageUri));
-            }
-        }
-    }
-
-    public Uri? DisplayImageUri
-    {
-        get
-        {
-            if (!string.IsNullOrWhiteSpace(ImagePath) && File.Exists(ImagePath))
-            {
-                return new Uri(ImagePath, UriKind.Absolute);
-            }
-
-            if (!string.IsNullOrWhiteSpace(ImageUrl) &&
-                Uri.TryCreate(ImageUrl, UriKind.Absolute, out var remoteUri))
-            {
-                return remoteUri;
-            }
-
-            return null;
-        }
+        set => SetField(ref _imagePath, value);
     }
 
     public bool IsSelected

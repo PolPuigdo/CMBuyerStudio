@@ -50,6 +50,13 @@ public sealed class WantedCardsService : IWantedCardsService
         await _wantedCardsRepository.SaveAllAsync(existingGroups, cancellationToken);
     }
 
+    public async Task AddOrMergeAsync(WantedCardGroup? group, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        await AddOrMergeAsync(new List<WantedCardGroup> { group }, cancellationToken);
+    }
+
     private static WantedCardGroup CloneGroup(WantedCardGroup source)
     {
         return new WantedCardGroup
