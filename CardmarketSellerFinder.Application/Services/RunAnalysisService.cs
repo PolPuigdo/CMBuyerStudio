@@ -1,5 +1,6 @@
 ﻿using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Optimization;
+using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Domain.WantedCards;
 using System;
@@ -34,10 +35,12 @@ namespace CMBuyerStudio.Application.Services
         }
 
 
-        public async Task RunAsync(bool eu = true, bool local = true, CancellationToken cancellationToken = default)
+        public async Task RunAsync(IProgress<RunProgressEvent> progress, CancellationToken cancellationToken = default)
         {
             // Get cards from cards.json
             var wantedCards = await _wantedCardsRepository.GetAllAsync(cancellationToken);
+            progress.Report(new RunStartedEvent(wantedCards.Count));
+
             var scrapingTargets = BuildScrapingTargets(wantedCards);
 
             // Check cache for each card
@@ -76,29 +79,13 @@ namespace CMBuyerStudio.Application.Services
             //var purgedMarketData = _offerPurger.Purge(allMarketData);
 
             //Run best seller eu if eu=true
-            if (eu)
-            {
-                // TODO
-            }
+            
 
             //Run best seller local if local=true
-            if (local)
-            {
-                // TODO
-            }
+            
 
             //Generate HTML report
             //await _htmlReportGenerator.GenerateAsync(xxxxxx, cancellationToken);
-        }
-
-        public async Task RunEUAsync()
-        {
-            await RunAsync(true, false);
-        }
-
-        public async Task RunLocalAsync()
-        {
-            await RunAsync(false, true);
         }
 
         private static IReadOnlyList<ScrapingTarget> BuildScrapingTargets(IEnumerable<WantedCardGroup> wantedCards)
