@@ -124,271 +124,272 @@
         </Border>
 
         <!-- CONTENT -->
-        <ScrollViewer Grid.Row="3"
-                      Grid.Column="1"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled">
+        <Border Grid.Row="3"
+                Grid.Column="1"
+                Style="{StaticResource SectionPanelStyle}"
+                Padding="22">
 
-            <StackPanel>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="18"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="18"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="18"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="18"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <!-- EXECUTION PANEL -->
-                <Border Style="{StaticResource SectionPanelStyle}"
-                        Padding="22"
-                        Margin="0,0,0,16">
+                <!-- TOP ACTIONS -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
+                    <StackPanel>
+                        <TextBlock Text="Execution"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontSize="20"
+                                   FontWeight="Bold"/>
+
+                        <TextBlock Text="Start the run when your wanted cards list is ready. You can cancel the execution at any time."
+                                   Margin="0,6,0,0"
+                                   Foreground="{StaticResource BrushTextSecondary}"
+                                   FontSize="13"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <Button Grid.Column="1"
+                            Content="{Binding RunButtonText}"
+                            Command="{Binding RunCommand}"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            MinWidth="230"
+                            IsEnabled="{Binding CanRun}"/>
+
+                    <Button Grid.Column="3"
+                            Content="Cancel Execution"
+                            Command="{Binding CancelCommand}"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            MinWidth="170"
+                            IsEnabled="{Binding CanCancel}"
+                            Background="#3A2024"
+                            BorderBrush="#6A353D"
+                            Foreground="#FFD7DB"/>
+                </Grid>
+
+                <!-- PROGRESS -->
+                <Border Grid.Row="2"
+                        Style="{StaticResource RunInfoPanelStyle}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="18"/>
+                            <RowDefinition Height="12"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="18"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="18"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="18"/>
+                            <RowDefinition Height="8"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- TOP ACTIONS -->
                         <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="12"/>
-                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <StackPanel>
-                                <TextBlock Text="Execution"
-                                           Foreground="{StaticResource BrushTextPrimary}"
-                                           FontSize="20"
-                                           FontWeight="Bold"/>
-
-                                <TextBlock Text="Start the run when your wanted cards list is ready. You can cancel the execution at any time."
-                                           Margin="0,6,0,0"
-                                           Foreground="{StaticResource BrushTextSecondary}"
-                                           FontSize="13"
-                                           TextWrapping="Wrap"/>
-                            </StackPanel>
-
-                            <Button Grid.Column="1"
-                                    Content="{Binding RunButtonText}"
-                                    Command="{Binding RunCommand}"
-                                    Style="{StaticResource PrimaryButtonStyle}"
-                                    MinWidth="230"
-                                    IsEnabled="{Binding CanRun}"/>
-
-                            <Button Grid.Column="3"
-                                    Content="Cancel Execution"
-                                    Command="{Binding CancelCommand}"
-                                    Style="{StaticResource SecondaryButtonStyle}"
-                                    MinWidth="170"
-                                    IsEnabled="{Binding CanCancel}"
-                                    Background="#3A2024"
-                                    BorderBrush="#6A353D"
-                                    Foreground="#FFD7DB"/>
-                        </Grid>
-
-                        <!-- PROGRESS -->
-                        <Border Grid.Row="2"
-                                Style="{StaticResource RunInfoPanelStyle}">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="12"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="8"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-
-                                <Grid Grid.Row="0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <TextBlock Text="Progress"
-                                               Foreground="{StaticResource BrushTextPrimary}"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"/>
-
-                                    <TextBlock Grid.Column="1"
-                                               Text="{Binding ProgressText}"
-                                               Foreground="{StaticResource BrushTextSecondary}"
-                                               FontSize="13"
-                                               VerticalAlignment="Center"/>
-                                </Grid>
-
-                                <ProgressBar Grid.Row="2"
-                                             Style="{StaticResource RunProgressBarStyle}"
-                                             Minimum="0"
-                                             Maximum="{Binding ProgressMaximum}"
-                                             Value="{Binding ProgressValue}"/>
-
-                                <StackPanel Grid.Row="4">
-                                    <TextBlock Text="{Binding StatusText}"
-                                               Foreground="{StaticResource BrushTextPrimary}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"
-                                               TextWrapping="Wrap"/>
-
-                                    <TextBlock Text="{Binding DetailText}"
-                                               Margin="0,6,0,0"
-                                               Foreground="{StaticResource BrushTextSecondary}"
-                                               FontSize="13"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-
-                        <!-- STEPS -->
-                        <StackPanel Grid.Row="4">
-                            <TextBlock Text="Run steps"
+                            <TextBlock Text="Progress"
                                        Foreground="{StaticResource BrushTextPrimary}"
                                        FontSize="16"
                                        FontWeight="SemiBold"/>
 
-                            <TextBlock Text="This gives the user a quick view of what stage the process is currently in."
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding ProgressText}"
+                                       Foreground="{StaticResource BrushTextSecondary}"
+                                       FontSize="13"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+
+                        <ProgressBar Grid.Row="2"
+                                     Style="{StaticResource RunProgressBarStyle}"
+                                     Minimum="0"
+                                     Maximum="{Binding ProgressMaximum}"
+                                     Value="{Binding ProgressValue}"/>
+
+                        <StackPanel Grid.Row="4">
+                            <TextBlock Text="{Binding StatusText}"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"/>
+
+                            <TextBlock Text="{Binding DetailText}"
                                        Margin="0,6,0,0"
                                        Foreground="{StaticResource BrushTextSecondary}"
                                        FontSize="13"
                                        TextWrapping="Wrap"/>
-
-                            <ItemsControl Margin="0,16,0,0"
-                                          ItemsSource="{Binding Steps}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel/>
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Border Style="{StaticResource RunStepCardStyle}"
-                                                Width="220">
-                                            <StackPanel>
-                                                <DockPanel LastChildFill="False">
-                                                    <TextBlock Text="{Binding Icon}"
-                                                               Foreground="{StaticResource BrushTextPrimary}"
-                                                               FontSize="18"
-                                                               Margin="0,0,10,0"
-                                                               VerticalAlignment="Center"/>
-
-                                                    <Border Style="{StaticResource StepStatusBadgeStyle}"
-                                                            DockPanel.Dock="Right"
-                                                            Background="{Binding StatusBackground}"
-                                                            BorderBrush="{Binding StatusBorderBrush}">
-                                                        <TextBlock Text="{Binding StatusText}"
-                                                                   Foreground="{Binding StatusForeground}"
-                                                                   FontSize="12"
-                                                                   FontWeight="SemiBold"/>
-                                                    </Border>
-                                                </DockPanel>
-
-                                                <TextBlock Text="{Binding Title}"
-                                                           Margin="0,14,0,0"
-                                                           Foreground="{StaticResource BrushTextPrimary}"
-                                                           FontSize="15"
-                                                           FontWeight="SemiBold"
-                                                           TextWrapping="Wrap"/>
-
-                                                <TextBlock Text="{Binding Description}"
-                                                           Margin="0,6,0,0"
-                                                           Foreground="{StaticResource BrushTextSecondary}"
-                                                           FontSize="13"
-                                                           TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
                         </StackPanel>
-
-                        <!-- SMALL SUMMARY -->
-                        <Grid Grid.Row="6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="16"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-
-                            <Border Grid.Column="0"
-                                    Style="{StaticResource RunInfoPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="EU calculation"
-                                               Foreground="{StaticResource BrushTextPrimary}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"/>
-
-                                    <TextBlock Text="{Binding EuSummaryText}"
-                                               Margin="0,8,0,0"
-                                               Foreground="{StaticResource BrushTextSecondary}"
-                                               FontSize="13"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Grid.Column="2"
-                                    Style="{StaticResource RunInfoPanelStyle}">
-                                <StackPanel>
-                                    <TextBlock Text="Local calculation"
-                                               Foreground="{StaticResource BrushTextPrimary}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"/>
-
-                                    <TextBlock Text="{Binding LocalSummaryText}"
-                                               Margin="0,8,0,0"
-                                               Foreground="{StaticResource BrushTextSecondary}"
-                                               FontSize="13"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-
-                        <!-- REPORTS -->
-                        <Border Grid.Row="8"
-                                Style="{StaticResource RunInfoPanelStyle}">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="12"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel>
-                                    <TextBlock Text="Generated reports"
-                                               Foreground="{StaticResource BrushTextPrimary}"
-                                               FontSize="16"
-                                               FontWeight="SemiBold"/>
-
-                                    <TextBlock Text="{Binding ReportsStatusText}"
-                                               Margin="0,6,0,0"
-                                               Foreground="{StaticResource BrushTextSecondary}"
-                                               FontSize="13"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-
-                                <Button Grid.Column="1"
-                                        Content="Open EU Report"
-                                        Command="{Binding OpenEuReportCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}"
-                                        MinWidth="150"
-                                        IsEnabled="{Binding CanOpenEuReport}"/>
-
-                                <Button Grid.Column="3"
-                                        Content="Open Local Report"
-                                        Command="{Binding OpenLocalReportCommand}"
-                                        Style="{StaticResource SecondaryButtonStyle}"
-                                        MinWidth="160"
-                                        IsEnabled="{Binding CanOpenLocalReport}"/>
-                            </Grid>
-                        </Border>
-
                     </Grid>
                 </Border>
 
-            </StackPanel>
-        </ScrollViewer>
+                <!-- STEPS -->
+                <Grid Grid.Row="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="16"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Run steps"
+                               Foreground="{StaticResource BrushTextPrimary}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Grid.Row="1"
+                               Text="This gives the user a quick view of what stage the process is currently in."
+                               Margin="0,6,0,0"
+                               Foreground="{StaticResource BrushTextSecondary}"
+                               FontSize="13"
+                               TextWrapping="Wrap"/>
+
+                    <ScrollViewer Grid.Row="3"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding Steps}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource RunStepCardStyle}"
+                                            Width="220">
+                                        <StackPanel>
+                                            <DockPanel LastChildFill="False">
+                                                <TextBlock Text="{Binding Icon}"
+                                                           Foreground="{StaticResource BrushTextPrimary}"
+                                                           FontSize="18"
+                                                           Margin="0,0,10,0"
+                                                           VerticalAlignment="Center"/>
+
+                                                <Border Style="{StaticResource StepStatusBadgeStyle}"
+                                                        DockPanel.Dock="Right"
+                                                        Background="{Binding StatusBackground}"
+                                                        BorderBrush="{Binding StatusBorderBrush}">
+                                                    <TextBlock Text="{Binding StatusText}"
+                                                               Foreground="{Binding StatusForeground}"
+                                                               FontSize="12"
+                                                               FontWeight="SemiBold"/>
+                                                </Border>
+                                            </DockPanel>
+
+                                            <TextBlock Text="{Binding Title}"
+                                                       Margin="0,14,0,0"
+                                                       Foreground="{StaticResource BrushTextPrimary}"
+                                                       FontSize="15"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap"/>
+
+                                            <TextBlock Text="{Binding Description}"
+                                                       Margin="0,6,0,0"
+                                                       Foreground="{StaticResource BrushTextSecondary}"
+                                                       FontSize="13"
+                                                       TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- SMALL SUMMARY -->
+                <Grid Grid.Row="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0"
+                            Style="{StaticResource RunInfoPanelStyle}">
+                        <StackPanel>
+                            <TextBlock Text="EU calculation"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBlock Text="{Binding EuSummaryText}"
+                                       Margin="0,8,0,0"
+                                       Foreground="{StaticResource BrushTextSecondary}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Column="2"
+                            Style="{StaticResource RunInfoPanelStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Local calculation"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="15"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBlock Text="{Binding LocalSummaryText}"
+                                       Margin="0,8,0,0"
+                                       Foreground="{StaticResource BrushTextSecondary}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- REPORTS -->
+                <Border Grid.Row="8"
+                        Style="{StaticResource RunInfoPanelStyle}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+                            <TextBlock Text="Generated reports"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBlock Text="{Binding ReportsStatusText}"
+                                       Margin="0,6,0,0"
+                                       Foreground="{StaticResource BrushTextSecondary}"
+                                       FontSize="13"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Content="Open EU Report"
+                                Command="{Binding OpenEuReportCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                MinWidth="150"
+                                IsEnabled="{Binding CanOpenEuReport}"/>
+
+                        <Button Grid.Column="3"
+                                Content="Open Local Report"
+                                Command="{Binding OpenLocalReportCommand}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                MinWidth="160"
+                                IsEnabled="{Binding CanOpenLocalReport}"/>
+                    </Grid>
+                </Border>
+
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>
