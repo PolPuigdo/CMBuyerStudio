@@ -15,6 +15,9 @@ artifacts/
 *.userosscache
 *.sln.docstates
 
+.dotnet-home/
+.userprofile/
+
 # Rider / VSCode (por si acaso)
 .idea/
 .vscode/
@@ -59,6 +62,7 @@ publish/
 appsettings.Development.json
 appsettings.Local.json
 settings.local.json
+appsettings.json
 
 # credenciales (MUY IMPORTANTE)
 secrets.json
