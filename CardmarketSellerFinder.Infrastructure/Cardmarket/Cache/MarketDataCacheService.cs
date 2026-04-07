@@ -17,15 +17,10 @@ public sealed class MarketDataCacheService : IMarketDataCacheService
     private readonly string _cachePath;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public MarketDataCacheService(IConfiguration configuration)
+    public MarketDataCacheService(IConfiguration configuration, IAppPaths paths)
     {
         _configuration = configuration;
-        _cachePath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CMBuyerStudio",
-            "Cache",
-            "CardsCache",
-            "market-data-cache.json");
+        _cachePath = Path.Combine(paths.CardsCachePath, "market-data-cache.json");
     }
 
     public async Task<MarketCardData?> GetAsync(ScrapingTarget target, CancellationToken cancellationToken = default)
