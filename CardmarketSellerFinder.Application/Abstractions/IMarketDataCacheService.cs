@@ -7,12 +7,7 @@ namespace CMBuyerStudio.Application.Abstractions
 {
     public interface IMarketDataCacheService
     {
-        Task<MarketCardData?> GetAsync(
-            ScrapingTarget target,
-            CancellationToken cancellationToken = default);
-
-        Task SaveAsync(
-            MarketCardData marketData,
-            CancellationToken cancellationToken = default);
+        Task<MarketCardData?> GetAsync(ScrapingTarget target, CancellationToken cancellationToken = default);
+        Task SaveAsync(MarketCardData marketData, CancellationToken cancellationToken = default);
     }
 }

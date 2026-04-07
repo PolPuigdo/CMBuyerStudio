@@ -1,7 +1,10 @@
-﻿using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Optimization;
 using CMBuyerStudio.Application.Services;
 using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
+using CMBuyerStudio.Domain.Market;
+using CMBuyerStudio.Infrastructure.Caching;
 using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
 using CMBuyerStudio.Infrastructure.Cardmarket.Cache;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
@@ -10,9 +13,9 @@ using CMBuyerStudio.Infrastructure.Options;
 using CMBuyerStudio.Infrastructure.Paths;
 using CMBuyerStudio.Persistence.WantedCards;
 using CMBuyerStudio.Reporting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http.Headers;
-using Microsoft.Extensions.Configuration;
 
 namespace CMBuyerStudio.Desktop.Composition;
 
@@ -37,6 +40,10 @@ public static class ServiceRegistration
     public static IServiceCollection AddApplication(this IServiceCollection services)
     {
         services.AddSingleton<IWantedCardsService, WantedCardsService>();
+        services.AddSingleton<OfferPurger>();
+        services.AddSingleton<PurchaseOptimizer>();
+        services.AddSingleton<IRunAnalysisService, RunAnalysisService>();
+
         return services;
     }
 
@@ -45,10 +52,12 @@ public static class ServiceRegistration
         services.AddSingleton<IAppPaths, AppPaths>();
 
         services.Configure<ScrapingOptions>(configuration.GetSection(ScrapingOptions.SectionName));
+        services.AddSingleton<IMarketDataCacheService, MarketDataCacheService>();
 
         services.AddSingleton<PlaywrightBuilder>();
         services.AddSingleton<PlaywrightParser>();
-
+        services.AddSingleton<ICardMarketScraper, CardMarketScraper>();
+        
         services.AddHttpClient<ICardImageCacheService, CardImageCacheService>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(25);
@@ -66,8 +75,6 @@ public static class ServiceRegistration
 
             client.DefaultRequestHeaders.Referrer = new Uri("https://www.cardmarket.com/");
         });
-
-        services.AddSingleton<IMarketDataCacheService, MarketDataCacheService>();
 
         services.AddSingleton<ICardSearchService, CardSearchService>();
 
