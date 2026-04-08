@@ -15,5 +15,10 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Helpers
         {
             return Random.Shared.Next(delay, delay*2);
         }
+
+        public static int GetRandomTypingDelay()
+        {
+            return GetRandom(80, 100);
+        }
     }
 }

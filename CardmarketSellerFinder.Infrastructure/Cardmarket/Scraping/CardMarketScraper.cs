@@ -4,6 +4,7 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
 using CMBuyerStudio.Infrastructure.Cardmarket.Helpers;
 using CMBuyerStudio.Infrastructure.Cardmarket.Parsing;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
+using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Locators;
 using CMBuyerStudio.Infrastructure.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.Playwright;
@@ -17,17 +18,18 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
     {
         private readonly PlaywrightBuilder _playwrightBuilder;
         private readonly ScrapingOptions _scrapingOptions;
+        private readonly CardmarketSessionSetup _setup;
 
         private const decimal PriceMaxNum = 0.50m;
         private const decimal PriceMaxPercent = 10m;
         private const int LoadMoreMaxClicks = 5;
         private const int LoadMoreRowsWait = 5000;
-        private const string OfferRowSelector = ".article-table .table-body .article-row";
 
-        public CardMarketScraper(PlaywrightBuilder playwrightBuilder, IOptions<ScrapingOptions> scrapingOptions)
+        public CardMarketScraper(PlaywrightBuilder playwrightBuilder, CardmarketSessionSetup setup, IOptions<ScrapingOptions> scrapingOptions)
         {
             _playwrightBuilder = playwrightBuilder;
             _scrapingOptions = scrapingOptions.Value;
+            _setup = setup;
         }
 
         public Task<MarketCardData> ScrapeAsync(ScrapingTarget target, CancellationToken cancellationToken = default)
@@ -49,13 +51,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
             var filteredUrl = UrlBuilder.BuildFilteredCardUrl(target.ProductUrl, _scrapingOptions);
 
-            await session.Page.GotoAsync(filteredUrl, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 30000
-            });
-
-            await session.Page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+            await _setup.PrepareAsync(session.Page, filteredUrl, cancellationToken);
 
             var firstPrice = await GetFirstPriceAsync(session.Page);
             var maxPrice = CalculateMaxPrice(firstPrice);
@@ -187,29 +183,25 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
         private static async Task<decimal> GetFirstPriceAsync(IPage page)
         {
-            var priceLocator = page
-                .Locator(".article-table .table-body .article-row")
-                .First
-                .Locator(".col-offer .price-container span.color-primary");
+            var firstRow = page
+                .Locator(CardmarketLocators.Offers.OfferRow)
+                .First;
 
-            await priceLocator.WaitForAsync(new LocatorWaitForOptions
-            {
-                State = WaitForSelectorState.Visible
-            });
-
-            var rawText = await priceLocator.InnerTextAsync();
-
-            return CardmarketValueParsers.TryParseEuroPrice(rawText, out decimal firstPrice)
-                ? firstPrice
-                : 0m;
+            return await GetPriceFromRow(firstRow);
         }
 
         private static async Task<decimal> GetLastPriceAsync(IPage page)
         {
-            var priceLocator = page
-                .Locator(".article-table .table-body .article-row")
-                .Last
-                .Locator(".col-offer .price-container span.color-primary");
+            var lastRow = page
+                .Locator(CardmarketLocators.Offers.OfferRow)
+                .Last;
+
+            return await GetPriceFromRow(lastRow);
+        }
+
+        private static async Task<decimal> GetPriceFromRow(ILocator row)
+        {
+            var priceLocator = row.Locator(CardmarketLocators.Offers.Price);
 
             await priceLocator.WaitForAsync(new LocatorWaitForOptions
             {
@@ -229,7 +221,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
             for (var click = 0; click < LoadMoreMaxClicks; click++)
             {
-                var loadMoreButton = page.Locator("#loadMoreButton");
+                var loadMoreButton = page.Locator(CardmarketLocators.Offers.LoadMoreButton);
                 if (await loadMoreButton.CountAsync() == 0)
                 {
                     break;
@@ -282,7 +274,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         {
             var offers = new List<SellerOffer>();
 
-            var rows = page.Locator(OfferRowSelector);
+            var rows = page.Locator(CardmarketLocators.Offers.OfferRow);
             await rows.First.WaitForAsync(new LocatorWaitForOptions
             {
                 State = WaitForSelectorState.Visible
@@ -327,17 +319,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                 return null;
             }
 
-            var priceText = await CardmarketValueParsers.GetFirstNonEmptyTextAsync(row, new[]
-            {
-                ".col-offer .price-container span.color-primary",
-                ".col-offer .price-container",
-                ".col-offer"
-            });
-
-            if (!CardmarketValueParsers.TryParseEuroPrice(priceText, out decimal price))
-            {
-                return null;
-            }
+            var price = await GetPriceFromRow(row);
 
             var quantity = await CardmarketValueParsers.TryExtractQuantityAsync(row);
             if (quantity <= 0)

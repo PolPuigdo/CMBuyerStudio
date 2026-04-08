@@ -57,6 +57,36 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Interaction
             await Task.Delay(WaitTiming.GetRandom(waitAfterCliuckMs));
         }
 
+        public static async Task ClickAsync(ILocator input)
+        {
+            ArgumentNullException.ThrowIfNull(input);
+
+            await input.WaitForAsync(new LocatorWaitForOptions
+            {
+                State = WaitForSelectorState.Visible
+            });
+            await input.ScrollIntoViewIfNeededAsync();
+
+            var box = await input.BoundingBoxAsync();
+            if (box is null)
+            {
+                await input.ClickAsync();
+                return;
+            }
+
+            var clickX = Math.Min(18d, Math.Max(1d, box.Width - 1d));
+            var clickY = Math.Max(1d, box.Height / 2d);
+
+            await input.ClickAsync(new LocatorClickOptions
+            {
+                Position = new Position
+                {
+                    X = (float)clickX,
+                    Y = (float)clickY
+                }
+            });
+        }
+
         public static async Task ClickWithJitterAsync(
         IPage page,
         string selector,

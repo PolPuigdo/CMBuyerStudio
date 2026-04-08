@@ -56,6 +56,7 @@ public static class ServiceRegistration
 
         services.AddSingleton<PlaywrightBuilder>();
         services.AddSingleton<PlaywrightParser>();
+        services.AddSingleton<CardmarketSessionSetup>();
         services.AddSingleton<ICardMarketScraper, CardMarketScraper>();
         
         services.AddHttpClient<ICardImageCacheService, CardImageCacheService>(client =>
