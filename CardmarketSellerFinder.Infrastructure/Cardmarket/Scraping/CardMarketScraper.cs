@@ -8,7 +8,6 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Locators;
 using CMBuyerStudio.Infrastructure.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.Playwright;
-using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 
@@ -19,16 +18,24 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         private readonly PlaywrightBuilder _playwrightBuilder;
         private readonly ScrapingOptions _scrapingOptions;
         private readonly CardmarketSessionSetup _setup;
+        private readonly PlaywrightProxyService _playwrightProxyService;
 
         private const decimal PriceMaxNum = 0.50m;
         private const decimal PriceMaxPercent = 10m;
         private const int LoadMoreMaxClicks = 5;
         private const int LoadMoreRowsWait = 5000;
+        private const int MaxScrapeAttemptsPerTarget = 3;
+        private const int MaxConsecutiveWorkerFailures = 3;
 
-        public CardMarketScraper(PlaywrightBuilder playwrightBuilder, CardmarketSessionSetup setup, IOptions<ScrapingOptions> scrapingOptions)
+        public CardMarketScraper(
+            PlaywrightBuilder playwrightBuilder,
+            CardmarketSessionSetup setup,
+            PlaywrightProxyService playwrightProxyCheck,
+            IOptions<ScrapingOptions> scrapingOptions)
         {
             _playwrightBuilder = playwrightBuilder;
             _scrapingOptions = scrapingOptions.Value;
+            _playwrightProxyService = playwrightProxyCheck;
             _setup = setup;
         }
 
@@ -63,7 +70,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                 target,
                 maxPrice);
 
-            await Task.Delay(WaitTiming.GetRandom(15000, 20000), cancellationToken);
+            await Task.Delay(WaitTiming.GetRandom(25000, 45000), cancellationToken);
 
             return new MarketCardData
             {
@@ -77,22 +84,62 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         {
             ArgumentNullException.ThrowIfNull(targets);
 
-            var targetQueue = new ConcurrentQueue<ScrapingTarget>(targets);
-            var resultChannel = Channel.CreateUnbounded<MarketCardData>();
-
-            var workers = CreateWorkers(targetQueue, resultChannel.Writer, cancellationToken);
-
-            _ = Task.WhenAll(workers).ContinueWith(async task =>
+            var workChannel = Channel.CreateUnbounded<ScrapeWorkItem>(new UnboundedChannelOptions
             {
-                if (task.Exception is not null)
+                SingleReader = false,
+                SingleWriter = false
+            });
+
+            var resultChannel = Channel.CreateUnbounded<MarketCardData>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false
+            });
+
+            var targetList = targets.ToList();
+            var pendingWorkItems = targetList.Count;
+
+            if (pendingWorkItems == 0)
+            {
+                resultChannel.Writer.TryComplete();
+
+                await foreach (var marketData in resultChannel.Reader.ReadAllAsync(cancellationToken))
                 {
-                    resultChannel.Writer.TryComplete(task.Exception.GetBaseException());
+                    yield return marketData;
+                }
+
+                yield break;
+            }
+
+            var workingProxies = await _playwrightProxyService.GetWorkingProxiesAsync(cancellationToken);
+
+            foreach (var target in targetList)
+            {
+                await workChannel.Writer.WriteAsync(new ScrapeWorkItem
+                {
+                    Target = target,
+                    Attempt = 1
+                }, cancellationToken);
+            }
+
+            var workers = CreateWorkers(
+                workChannel.Reader,
+                workChannel.Writer,
+                resultChannel.Writer,
+                workingProxies,
+                () => Interlocked.Decrement(ref pendingWorkItems) == 0,
+                cancellationToken);
+
+            _ = Task.WhenAll(workers).ContinueWith(task =>
+            {
+                if (task.IsFaulted)
+                {
+                    resultChannel.Writer.TryComplete(task.Exception?.GetBaseException());
                     return;
                 }
 
                 resultChannel.Writer.TryComplete();
-                await Task.CompletedTask;
-            }, cancellationToken);
+            }, CancellationToken.None);
 
             await foreach (var marketData in resultChannel.Reader.ReadAllAsync(cancellationToken))
             {
@@ -100,30 +147,42 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             }
         }
 
-        private List<Task> CreateWorkers(ConcurrentQueue<ScrapingTarget> targetQueue, ChannelWriter<MarketCardData> writer, CancellationToken cancellationToken)
+        private async Task<List<Task>> CreateWorkers(
+            ChannelReader<ScrapeWorkItem> workReader,
+            ChannelWriter<ScrapeWorkItem> workWriter,
+            ChannelWriter<MarketCardData> resultWriter,
+            IReadOnlyList<Proxy> proxies,
+            Func<bool> markWorkItemCompleted,
+            CancellationToken cancellationToken)
         {
             var workers = new List<Task>
             {
                 RunWorkerAsync(
-                    targetQueue,
-                    writer,
+                    workReader,
+                    workWriter,
+                    resultWriter,
+                    markWorkItemCompleted,
                     proxy: null,
                     useChromium: true,
+                    canRetireWorker: false,
                     cancellationToken)
             };
 
-            if (_scrapingOptions.Proxies is { Count: > 0 })
+            if (proxies is { Count: > 0 })
             {
-                for (var i = 0; i < _scrapingOptions.Proxies.Count; i++)
+                for (var i = 0; i < proxies.Count; i++)
                 {
-                    var proxy = ToPlaywrightProxy(_scrapingOptions.Proxies[i]);
+                    var proxy = proxies[i];
                     var useChromium = i % 2 == 0;
 
                     workers.Add(RunWorkerAsync(
-                        targetQueue,
-                        writer,
+                        workReader,
+                        workWriter,
+                        resultWriter,
+                        markWorkItemCompleted,
                         proxy,
                         useChromium,
+                        canRetireWorker: true,
                         cancellationToken));
                 }
             }
@@ -132,21 +191,71 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         }
 
         private async Task RunWorkerAsync(
-            ConcurrentQueue<ScrapingTarget> targetQueue,
-            ChannelWriter<MarketCardData> writer,
+            ChannelReader<ScrapeWorkItem> workReader,
+            ChannelWriter<ScrapeWorkItem> workWriter,
+            ChannelWriter<MarketCardData> resultWriter,
+            Func<bool> markWorkItemCompleted,
             Proxy? proxy,
             bool useChromium,
+            bool canRetireWorker,
             CancellationToken cancellationToken)
         {
-            while (!cancellationToken.IsCancellationRequested && targetQueue.TryDequeue(out var target))
-            {
-                var marketData = await ScrapeAsync(
-                    target,
-                    proxy,
-                    useChromium,
-                    cancellationToken);
+            var consecutiveFailures = 0;
 
-                await writer.WriteAsync(marketData, cancellationToken);
+            try
+            {
+                await foreach (var workItem in workReader.ReadAllAsync(cancellationToken))
+                {
+                    try
+                    {
+                        var marketData = await ScrapeAsync(
+                            workItem.Target,
+                            proxy,
+                            useChromium,
+                            cancellationToken);
+
+                        consecutiveFailures = 0;
+
+                        await resultWriter.WriteAsync(marketData, cancellationToken);
+
+                        if (markWorkItemCompleted())
+                        {
+                            workWriter.TryComplete();
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception)
+                    {
+                        consecutiveFailures++;
+
+                        if (workItem.Attempt < MaxScrapeAttemptsPerTarget)
+                        {
+                            await workWriter.WriteAsync(new ScrapeWorkItem
+                            {
+                                Target = workItem.Target,
+                                Attempt = workItem.Attempt + 1
+                            }, cancellationToken);
+                        }
+                        else
+                        {
+                            if (markWorkItemCompleted())
+                            {
+                                workWriter.TryComplete();
+                            }
+                        }
+
+                        if (canRetireWorker && consecutiveFailures >= MaxConsecutiveWorkerFailures)
+                        {
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (ChannelClosedException)
+            {
             }
         }
 
@@ -164,16 +273,6 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             return await _playwrightBuilder.CreateFirefoxAsync(
                 headless: _scrapingOptions.Headless,
                 proxy: proxy);
-        }
-
-        private static Proxy ToPlaywrightProxy(ProxyOptions proxyOptions)
-        {
-            return new Proxy
-            {
-                Server = proxyOptions.Server,
-                Username = string.IsNullOrWhiteSpace(proxyOptions.Username) ? null : proxyOptions.Username,
-                Password = string.IsNullOrWhiteSpace(proxyOptions.Password) ? null : proxyOptions.Password
-            };
         }
 
         private static decimal CalculateMaxPrice(decimal firstPrice)
@@ -342,6 +441,12 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                 SetName = target.SetName,
                 ProductUrl = target.ProductUrl
             };
+        }
+
+        private sealed class ScrapeWorkItem
+        {
+            public required ScrapingTarget Target { get; init; }
+            public int Attempt { get; init; }
         }
     }
 }

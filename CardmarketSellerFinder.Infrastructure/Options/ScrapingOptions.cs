@@ -13,6 +13,8 @@ namespace CMBuyerStudio.Infrastructure.Options
         public string CardmarketUsername { get; set; } = string.Empty;
         public string CardmarketPassword { get; set; } = string.Empty;
 
+        public string UrlProxyCecker { get; set; } = string.Empty;
+
         public List<ProxyOptions> Proxies { get; set; } = new();
 
         public string SellerCountry { get; set; } = "1,2,3,35,5,6,8,9,11,12,7,14,15,16,17,21,19,20,22,23,25,26,27,31,30,10,28";
