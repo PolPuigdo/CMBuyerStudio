@@ -3,6 +3,7 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Extensions;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Interaction;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Locators;
 using CMBuyerStudio.Infrastructure.Options;
+using Microsoft.Extensions.Options;
 using Microsoft.Playwright;
 using System;
 using System.Collections.Generic;
@@ -14,9 +15,9 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
     {
         private readonly ScrapingOptions _scrapingOptions;
 
-        public CardmarketSessionSetup(ScrapingOptions scrapingOptions)
+        public CardmarketSessionSetup(IOptions<ScrapingOptions> scrapingOptions)
         {
-            _scrapingOptions = scrapingOptions;
+            _scrapingOptions = scrapingOptions.Value;
         }
 
         public async Task PrepareAsync(IPage page, string url, CancellationToken cancellationToken = default)
@@ -38,13 +39,13 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
         private async Task SignInIfNeededAsync(IPage page, CancellationToken cancellationToken)
         {
-            var usernameInput = page.Locator(CardmarketLocators.Login.UsernameInput);
+            var usernameInput = page.Locator(CardmarketLocators.Login.UsernameInput).First;
             await TypeIntoLoginInputAsync(usernameInput, _scrapingOptions.CardmarketUsername);
 
-            var passwordInput = page.Locator(CardmarketLocators.Login.PasswordInput);
+            var passwordInput = page.Locator(CardmarketLocators.Login.PasswordInput).First;
             await TypeIntoLoginInputAsync(passwordInput, _scrapingOptions.CardmarketPassword);
 
-            var loginButton = page.Locator(CardmarketLocators.Login.SubmitButton);
+            var loginButton = page.Locator(CardmarketLocators.Login.SubmitButton).First;
             await PlaywrightClicker.ClickWithJitterAsync(loginButton);
         }
 

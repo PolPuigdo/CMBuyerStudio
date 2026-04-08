@@ -63,7 +63,8 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Interaction
 
             await input.WaitForAsync(new LocatorWaitForOptions
             {
-                State = WaitForSelectorState.Visible
+                State = WaitForSelectorState.Visible,
+                Timeout = 5000
             });
             await input.ScrollIntoViewIfNeededAsync();
 

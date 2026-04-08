@@ -63,6 +63,8 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                 target,
                 maxPrice);
 
+            await Task.Delay(WaitTiming.GetRandom(15000, 20000), cancellationToken);
+
             return new MarketCardData
             {
                 Target = target,
@@ -201,11 +203,12 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
         private static async Task<decimal> GetPriceFromRow(ILocator row)
         {
-            var priceLocator = row.Locator(CardmarketLocators.Offers.Price);
+            var priceLocator = row.Locator(CardmarketLocators.Offers.Price).Last;
 
             await priceLocator.WaitForAsync(new LocatorWaitForOptions
             {
-                State = WaitForSelectorState.Visible
+                State = WaitForSelectorState.Visible,
+                Timeout = 5000
             });
 
             var rawText = await priceLocator.InnerTextAsync();
@@ -236,7 +239,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                         if (clickTries == 0)
                         {
                             clickTries = 1;
-                            await Task.Delay(LoadMoreRowsWait);
+                            await Task.Delay(WaitTiming.GetOneSecDiff(LoadMoreRowsWait));
                             continue;
                         }
                         else 
@@ -247,7 +250,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
                     await button.ClickAsync();
                     clickTries = 0;
-                    await Task.Delay(LoadMoreRowsWait);
+                    await Task.Delay(WaitTiming.GetOneSecDiff(LoadMoreRowsWait));
 
                     decimal lastPrice = await GetLastPriceAsync(page);
                     if (lastPrice > maxPrice)
