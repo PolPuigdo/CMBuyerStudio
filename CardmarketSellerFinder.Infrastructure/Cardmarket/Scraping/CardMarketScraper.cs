@@ -147,7 +147,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             }
         }
 
-        private async Task<List<Task>> CreateWorkers(
+        private List<Task> CreateWorkers(
             ChannelReader<ScrapeWorkItem> workReader,
             ChannelWriter<ScrapeWorkItem> workWriter,
             ChannelWriter<MarketCardData> resultWriter,
@@ -155,36 +155,35 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             Func<bool> markWorkItemCompleted,
             CancellationToken cancellationToken)
         {
-            var workers = new List<Task>
+            var workers = new List<Task>();
+
+            var maxProxyWorkers = Math.Max(0, _scrapingOptions.MaxConcurrentWorkers - 1);
+            var proxiesToUse = proxies.Take(maxProxyWorkers).ToList();
+
+            workers.Add(RunWorkerAsync(
+                workReader,
+                workWriter,
+                resultWriter,
+                markWorkItemCompleted,
+                proxy: null,
+                useChromium: true,
+                canRetireWorker: false,
+                cancellationToken));
+
+            for (var i = 0; i < proxiesToUse.Count; i++)
             {
-                RunWorkerAsync(
+                var proxy = proxiesToUse[i];
+                var useChromium = i % 2 == 0;
+
+                workers.Add(RunWorkerAsync(
                     workReader,
                     workWriter,
                     resultWriter,
                     markWorkItemCompleted,
-                    proxy: null,
-                    useChromium: true,
-                    canRetireWorker: false,
-                    cancellationToken)
-            };
-
-            if (proxies is { Count: > 0 })
-            {
-                for (var i = 0; i < proxies.Count; i++)
-                {
-                    var proxy = proxies[i];
-                    var useChromium = i % 2 == 0;
-
-                    workers.Add(RunWorkerAsync(
-                        workReader,
-                        workWriter,
-                        resultWriter,
-                        markWorkItemCompleted,
-                        proxy,
-                        useChromium,
-                        canRetireWorker: true,
-                        cancellationToken));
-                }
+                    proxy,
+                    useChromium,
+                    canRetireWorker: true,
+                    cancellationToken));
             }
 
             return workers;

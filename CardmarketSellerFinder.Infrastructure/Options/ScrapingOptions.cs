@@ -9,6 +9,7 @@ namespace CMBuyerStudio.Infrastructure.Options
         public const string SectionName = "Scraping";
 
         public bool Headless { get; set; } = false;
+        public int MaxConcurrentWorkers { get; set; } = 10;
 
         public string CardmarketUsername { get; set; } = string.Empty;
         public string CardmarketPassword { get; set; } = string.Empty;
