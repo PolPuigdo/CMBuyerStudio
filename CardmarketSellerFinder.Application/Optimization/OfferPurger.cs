@@ -120,6 +120,7 @@ public sealed class OfferPurger
 
     private static List<CanonicalSeller> BuildCanonicalSellers(
     IReadOnlyList<MarketCardData> marketData,
+    int[] requiredByCard,
     IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
     {
         var sellerIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -154,7 +155,7 @@ public sealed class OfferPurger
 
             for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
             {
-                var requiredQuantity = Math.Max(0, marketData[cardIndex].Target.DesiredQuantity);
+                var requiredQuantity = requiredByCard[cardIndex];
 
                 var profile = BuildSellerCardProfile(
                     accumulator.GetOffers(cardIndex),
@@ -180,6 +181,34 @@ public sealed class OfferPurger
         }
 
         return sellers;
+    }
+
+    private static List<int> FindImpossibleCardIndices(
+    IReadOnlyList<CanonicalSeller> sellers,
+    int[] requiredByCard)
+    {
+        var impossibleCardIndices = new List<int>();
+
+        for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
+        {
+            if (requiredByCard[cardIndex] <= 0)
+            {
+                continue;
+            }
+
+            var totalQty = 0;
+            for (var sellerIndex = 0; sellerIndex < sellers.Count; sellerIndex++)
+            {
+                totalQty += sellers[sellerIndex].QtyByCard[cardIndex];
+            }
+
+            if (totalQty < requiredByCard[cardIndex])
+            {
+                impossibleCardIndices.Add(cardIndex);
+            }
+        }
+
+        return impossibleCardIndices;
     }
 
     private static bool DominatesSingleCard(CanonicalSeller dominant, CanonicalSeller target, int cardIndex)
@@ -616,8 +645,24 @@ public sealed class OfferPurger
         var preselectedSellerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var uncoveredCardIndices = new HashSet<int>();
 
-        IReadOnlyList<CanonicalSeller> currentSellers =
-            BuildCanonicalSellers(marketData, fixedCostBySellerName);
+        IReadOnlyList<CanonicalSeller> currentSellers = BuildCanonicalSellers(
+            marketData,
+            requiredByCard,
+            fixedCostBySellerName);
+
+        foreach (var impossibleCardIndex in FindImpossibleCardIndices(currentSellers, requiredByCard))
+        {
+            uncoveredCardIndices.Add(impossibleCardIndex);
+            requiredByCard[impossibleCardIndex] = 0;
+        }
+
+        if (uncoveredCardIndices.Count > 0)
+        {
+            currentSellers = BuildCanonicalSellers(
+                marketData,
+                requiredByCard,
+                fixedCostBySellerName);
+        }
 
         var initialSellerCount = currentSellers.Count;
 
@@ -668,7 +713,10 @@ public sealed class OfferPurger
                     isolatedSellerNames,
                     requiredByCard);
 
-                currentSellers = BuildCanonicalSellers(marketData, fixedCostBySellerName);
+                currentSellers = BuildCanonicalSellers(
+                    marketData,
+                    requiredByCard,
+                    fixedCostBySellerName);
 
                 var postIsolatedPreprocess = PreprocessSellersExact(
                     currentSellers,
@@ -696,7 +744,10 @@ public sealed class OfferPurger
                     newForcedSellerNames,
                     requiredByCard);
 
-                currentSellers = BuildCanonicalSellers(marketData, fixedCostBySellerName);
+                currentSellers = BuildCanonicalSellers(
+                    marketData,
+                    requiredByCard,
+                    fixedCostBySellerName);
 
                 var postForcedPreprocess = PreprocessSellersExact(
                     currentSellers,
