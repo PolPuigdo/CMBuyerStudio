@@ -1,0 +1,161 @@
+using CMBuyerStudio.Application.Models;
+using CMBuyerStudio.Application.Services;
+using CMBuyerStudio.Domain.Market;
+
+namespace CMBuyerStudio.Tests.Unit;
+
+public sealed class OfferPurgerTests
+{
+    private static readonly IReadOnlyDictionary<string, decimal> NoFixedCosts =
+        new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+    [Fact]
+    public void Purge_ExcludesInitiallyImpossibleCardsBeforeRunningTheMainRounds()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 3,
+                Offer("SharedExpensive", "p1", price: 1m, availableQuantity: 1),
+                Offer("OnlyImpossible", "p1", price: 2m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("SharedExpensive", "p2", price: 10m, availableQuantity: 1),
+                Offer("CheapSingle", "p2", price: 5m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Equal(["p1"], result.UncoveredCardKeys.OrderBy(x => x));
+        Assert.Equal(["CheapSingle"], result.PreselectedSellerNames.OrderBy(x => x));
+        Assert.Empty(GetRemainingSellerNames(result));
+    }
+
+    [Fact]
+    public void Purge_RebuildsWithRemainingRequiredAfterForcedSellers()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("ForcedBridge", "p1", price: 1m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("ForcedBridge", "p2", price: 1m, availableQuantity: 1),
+                Offer("BridgeExpensive", "p2", price: 10m, availableQuantity: 1)),
+            Card(
+                "p3",
+                desiredQuantity: 1,
+                Offer("BridgeExpensive", "p3", price: 10m, availableQuantity: 1),
+                Offer("FinalCheap", "p3", price: 5m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Equal(
+            ["FinalCheap", "ForcedBridge"],
+            result.PreselectedSellerNames.OrderBy(x => x));
+        Assert.Empty(result.UncoveredCardKeys);
+        Assert.Empty(GetRemainingSellerNames(result));
+        Assert.DoesNotContain("BridgeExpensive", result.PreselectedSellerNames);
+    }
+
+    [Fact]
+    public void Purge_RebuildsWithRemainingRequiredAfterIsolatedSolutions()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("IsolatedBest", "p1", price: 1m, availableQuantity: 1),
+                Offer("IsolatedWorse", "p1", price: 2m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("OtherSeller", "p2", price: 7m, availableQuantity: 1),
+                Offer("OtherBetter", "p2", price: 3m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Equal(
+            ["IsolatedBest", "OtherBetter"],
+            result.PreselectedSellerNames.OrderBy(x => x));
+        Assert.Empty(result.UncoveredCardKeys);
+        Assert.Empty(GetRemainingSellerNames(result));
+        Assert.DoesNotContain("IsolatedWorse", result.PreselectedSellerNames);
+    }
+
+    [Fact]
+    public void Purge_StillRemovesGloballyDominatedSellers()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("BetterAll", "p1", price: 1m, availableQuantity: 1),
+                Offer("WorseAll", "p1", price: 2m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("BetterAll", "p2", price: 1m, availableQuantity: 1),
+                Offer("WorseAll", "p2", price: 2m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Equal(["BetterAll"], result.PreselectedSellerNames.OrderBy(x => x));
+        Assert.Empty(GetRemainingSellerNames(result));
+        Assert.Empty(result.UncoveredCardKeys);
+    }
+
+    private static MarketCardData Card(string productUrl, int desiredQuantity, params SellerOffer[] offers)
+    {
+        return new MarketCardData
+        {
+            Target = new ScrapingTarget
+            {
+                CardName = productUrl,
+                SetName = "SET",
+                ProductUrl = productUrl,
+                DesiredQuantity = desiredQuantity
+            },
+            ScrapedAtUtc = DateTime.UtcNow,
+            Offers = offers
+        };
+    }
+
+    private static SellerOffer Offer(string sellerName, string productUrl, decimal price, int availableQuantity)
+    {
+        return new SellerOffer
+        {
+            SellerName = sellerName,
+            Country = "ES",
+            Price = price,
+            AvailableQuantity = availableQuantity,
+            CardName = productUrl,
+            SetName = "SET",
+            ProductUrl = productUrl
+        };
+    }
+
+    private static IReadOnlyList<string> GetRemainingSellerNames(OfferPurgeResult result)
+    {
+        return result.PurgedMarketData
+            .SelectMany(card => card.Offers)
+            .Select(offer => offer.SellerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+}

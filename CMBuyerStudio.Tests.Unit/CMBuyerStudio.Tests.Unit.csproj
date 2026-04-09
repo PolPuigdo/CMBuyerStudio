@@ -18,4 +18,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj" />
+    <ProjectReference Include="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj" />
+  </ItemGroup>
+
 </Project>
