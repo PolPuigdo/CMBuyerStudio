@@ -1,4 +1,5 @@
 using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Common.Options;
 using CMBuyerStudio.Application.Optimization;
 using CMBuyerStudio.Application.Services;
 using CMBuyerStudio.Desktop.ViewModels;
@@ -15,6 +16,7 @@ using CMBuyerStudio.Persistence.WantedCards;
 using CMBuyerStudio.Reporting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Configuration;
 using System.Net.Http.Headers;
 
 namespace CMBuyerStudio.Desktop.Composition;
@@ -37,8 +39,10 @@ public static class ServiceRegistration
         return services;
     }
 
-    public static IServiceCollection AddApplication(this IServiceCollection services)
+    public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
+        services.Configure<ShippingCostsOptions>(configuration.GetSection(ShippingCostsOptions.SectionName));
+
         services.AddSingleton<IWantedCardsService, WantedCardsService>();
         services.AddSingleton<OfferPurger>();
         services.AddSingleton<PurchaseOptimizer>();
