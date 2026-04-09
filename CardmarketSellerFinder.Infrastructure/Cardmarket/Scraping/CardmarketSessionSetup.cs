@@ -11,7 +11,7 @@ using System.Text;
 
 namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 {
-    public sealed class CardmarketSessionSetup
+    public sealed class CardmarketSessionSetup : ICardmarketSessionSetup
     {
         private readonly ScrapingOptions _scrapingOptions;
 

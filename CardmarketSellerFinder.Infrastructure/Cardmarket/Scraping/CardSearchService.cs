@@ -9,13 +9,13 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 {
     public class CardSearchService : ICardSearchService
     {
-        private readonly PlaywrightBuilder _playwrightBuilder;
+        private readonly IPlaywrightSessionFactory _playwrightSessionFactory;
         private readonly PlaywrightParser _playwrightParser;
         private readonly ICardImageCacheService _imageCacheService;
 
-        public CardSearchService(PlaywrightBuilder playwrightBuilder, PlaywrightParser playwrightParser, ICardImageCacheService imageCacheService)
+        public CardSearchService(IPlaywrightSessionFactory playwrightSessionFactory, PlaywrightParser playwrightParser, ICardImageCacheService imageCacheService)
         {
-            _playwrightBuilder = playwrightBuilder ?? throw new ArgumentNullException(nameof(playwrightBuilder));
+            _playwrightSessionFactory = playwrightSessionFactory ?? throw new ArgumentNullException(nameof(playwrightSessionFactory));
             _playwrightParser = playwrightParser ?? throw new ArgumentNullException(nameof(playwrightParser));
             _imageCacheService = imageCacheService ?? throw new ArgumentNullException(nameof(imageCacheService));
         }
@@ -23,7 +23,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         public async Task<IReadOnlyList<SearchCardResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
         {
             var searchUrl = UrlBuilder.SearchUrl(query);
-            var playwright = await _playwrightBuilder.CreateChromiumAsync();
+            await using var playwright = await _playwrightSessionFactory.CreateChromiumAsync();
             var page = playwright.Page;
 
             await page.GotoAsync(searchUrl, new PageGotoOptions
@@ -68,8 +68,6 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                     var imageName = $"{card.CardName}_{card.SetName}";
                     card.ImagePath = await _imageCacheService.GetOrDownloadAsync(card.ImageUrl, imageName, ct);
                 });
-
-            await playwright.DisposeAsync();
 
             return cards.Values
                 .OrderBy(item => item.Price)

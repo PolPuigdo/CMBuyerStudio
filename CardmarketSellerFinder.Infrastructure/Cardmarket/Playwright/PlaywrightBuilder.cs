@@ -3,7 +3,7 @@ using Microsoft.Playwright;
 
 namespace CMBuyerStudio.Infrastructure.Cardmarket.Builders
 {
-    public class PlaywrightBuilder
+    public class PlaywrightBuilder : IPlaywrightSessionFactory
     {
         public async Task<PlaywrightSession> CreateChromiumAsync(bool headless = false, Proxy? proxy = null)
         {

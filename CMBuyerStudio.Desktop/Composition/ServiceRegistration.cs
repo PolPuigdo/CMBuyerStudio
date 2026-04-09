@@ -58,9 +58,10 @@ public static class ServiceRegistration
         services.Configure<ScrapingOptions>(configuration.GetSection(ScrapingOptions.SectionName));
         services.AddSingleton<IMarketDataCacheService, MarketDataCacheService>();
 
-        services.AddSingleton<PlaywrightBuilder>();
+        services.AddSingleton<IPlaywrightSessionFactory, PlaywrightBuilder>();
         services.AddSingleton<PlaywrightParser>();
-        services.AddSingleton<CardmarketSessionSetup>();
+        services.AddSingleton<ICardmarketSessionSetup, CardmarketSessionSetup>();
+        services.AddSingleton<IScrapeDelayStrategy, DefaultScrapeDelayStrategy>();
         services.AddTransient<PlaywrightProxyService>();
         services.AddSingleton<ICardMarketScraper, CardMarketScraper>();
         

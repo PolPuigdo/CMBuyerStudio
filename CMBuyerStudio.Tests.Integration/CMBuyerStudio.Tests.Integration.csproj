@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
+    <RestoreDisableParallel>true</RestoreDisableParallel>
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,5 +20,33 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.58.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="CMBuyerStudio.Application">
+      <HintPath>..\CardmarketSellerFinder.Application\bin\Debug\net10.0\CMBuyerStudio.Application.dll</HintPath>
+    </Reference>
+    <Reference Include="CMBuyerStudio.Domain">
+      <HintPath>..\CardmarketSellerFinder.Domain\bin\Debug\net10.0\CMBuyerStudio.Domain.dll</HintPath>
+    </Reference>
+    <Reference Include="CMBuyerStudio.Infrastructure">
+      <HintPath>..\CardmarketSellerFinder.Infrastructure\bin\Debug\net10.0\CMBuyerStudio.Infrastructure.dll</HintPath>
+    </Reference>
+    <Reference Include="CMBuyerStudio.Persistence">
+      <HintPath>..\CardmarketSellerFinder.Persistence\bin\Debug\net10.0\CMBuyerStudio.Persistence.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="BuildIntegrationDependencies" BeforeTargets="ResolveReferences">
+    <MSBuild Projects="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj;..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj;..\CardmarketSellerFinder.Persistence\CMBuyerStudio.Persistence.csproj;..\CardmarketSellerFinder.Infrastructure\CMBuyerStudio.Infrastructure.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
 
 </Project>

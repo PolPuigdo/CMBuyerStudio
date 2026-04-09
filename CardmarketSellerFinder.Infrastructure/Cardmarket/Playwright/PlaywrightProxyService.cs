@@ -7,12 +7,12 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Playwright
 {
     public class PlaywrightProxyService
     {
-        private readonly PlaywrightBuilder _playwrightBuilder;
+        private readonly IPlaywrightSessionFactory _playwrightSessionFactory;
         private readonly ScrapingOptions _scrapingOptions;
 
-        public PlaywrightProxyService(PlaywrightBuilder playwrightBuilder, IOptions<ScrapingOptions> scrapingOptions)
+        public PlaywrightProxyService(IPlaywrightSessionFactory playwrightSessionFactory, IOptions<ScrapingOptions> scrapingOptions)
         {
-            _playwrightBuilder = playwrightBuilder;
+            _playwrightSessionFactory = playwrightSessionFactory;
             _scrapingOptions = scrapingOptions.Value;
         }
 
@@ -24,7 +24,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Playwright
         {
             var proxy = ToPlaywrightProxy(proxyOp);
 
-            await using var session = await _playwrightBuilder.CreateChromiumAsync(headless, proxy);
+            await using var session = await _playwrightSessionFactory.CreateChromiumAsync(headless, proxy);
 
             try
             {

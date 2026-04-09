@@ -1,6 +1,5 @@
 ﻿using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Domain.Market;
-using CMBuyerStudio.Infrastructure.Cardmarket.Builders;
 using CMBuyerStudio.Infrastructure.Cardmarket.Helpers;
 using CMBuyerStudio.Infrastructure.Cardmarket.Parsing;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
@@ -15,10 +14,11 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 {
     public class CardMarketScraper : ICardMarketScraper
     {
-        private readonly PlaywrightBuilder _playwrightBuilder;
+        private readonly IPlaywrightSessionFactory _playwrightSessionFactory;
         private readonly ScrapingOptions _scrapingOptions;
-        private readonly CardmarketSessionSetup _setup;
+        private readonly ICardmarketSessionSetup _setup;
         private readonly PlaywrightProxyService _playwrightProxyService;
+        private readonly IScrapeDelayStrategy _scrapeDelayStrategy;
 
         private const decimal PriceMaxNum = 0.50m;
         private const decimal PriceMaxPercent = 10m;
@@ -28,15 +28,17 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
         private const int MaxConsecutiveWorkerFailures = 3;
 
         public CardMarketScraper(
-            PlaywrightBuilder playwrightBuilder,
-            CardmarketSessionSetup setup,
+            IPlaywrightSessionFactory playwrightSessionFactory,
+            ICardmarketSessionSetup setup,
             PlaywrightProxyService playwrightProxyCheck,
-            IOptions<ScrapingOptions> scrapingOptions)
+            IOptions<ScrapingOptions> scrapingOptions,
+            IScrapeDelayStrategy scrapeDelayStrategy)
         {
-            _playwrightBuilder = playwrightBuilder;
+            _playwrightSessionFactory = playwrightSessionFactory;
             _scrapingOptions = scrapingOptions.Value;
             _playwrightProxyService = playwrightProxyCheck;
             _setup = setup;
+            _scrapeDelayStrategy = scrapeDelayStrategy;
         }
 
         public Task<MarketCardData> ScrapeAsync(ScrapingTarget target, CancellationToken cancellationToken = default)
@@ -70,7 +72,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
                 target,
                 maxPrice);
 
-            await Task.Delay(WaitTiming.GetRandom(25000, 45000), cancellationToken);
+            await _scrapeDelayStrategy.DelayAfterScrapeAsync(cancellationToken);
 
             return new MarketCardData
             {
@@ -264,12 +266,12 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
             if (useChromium)
             {
-                return await _playwrightBuilder.CreateChromiumAsync(
+                return await _playwrightSessionFactory.CreateChromiumAsync(
                     headless: _scrapingOptions.Headless,
                     proxy: proxy);
             }
 
-            return await _playwrightBuilder.CreateFirefoxAsync(
+            return await _playwrightSessionFactory.CreateFirefoxAsync(
                 headless: _scrapingOptions.Headless,
                 proxy: proxy);
         }
@@ -433,7 +435,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             return new SellerOffer
             {
                 SellerName = sellerName,
-                Country = country,
+                Country = country ?? string.Empty,
                 Price = price,
                 AvailableQuantity = quantity,
                 CardName = target.CardName,

@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj" />
     <ProjectReference Include="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj" />
+    <ProjectReference Include="..\CardmarketSellerFinder.Infrastructure\CMBuyerStudio.Infrastructure.csproj" />
+    <ProjectReference Include="..\CardmarketSellerFinder.Persistence\CMBuyerStudio.Persistence.csproj" />
   </ItemGroup>
 
 </Project>

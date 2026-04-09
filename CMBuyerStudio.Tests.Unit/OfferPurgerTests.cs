@@ -119,6 +119,94 @@ public sealed class OfferPurgerTests
         Assert.Empty(result.UncoveredCardKeys);
     }
 
+    [Fact]
+    public void Purge_PrefersSellerWithLowerFixedCostWhenPricesTie()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("CheapShipping", "p1", price: 1m, availableQuantity: 1),
+                Offer("ExpensiveShipping", "p1", price: 1m, availableQuantity: 1))
+        };
+        var fixedCosts = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CheapShipping"] = 1m,
+            ["ExpensiveShipping"] = 5m
+        };
+
+        var result = sut.Purge(marketData, fixedCosts);
+
+        Assert.Contains("CheapShipping", result.PreselectedSellerNames);
+        Assert.DoesNotContain("ExpensiveShipping", result.PreselectedSellerNames);
+    }
+
+    [Fact]
+    public void Purge_RequiresMultipleSellersWhenNoSingleSellerCanCoverRequestedQuantity()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 2,
+                Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+                Offer("SellerB", "p1", price: 1.1m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Equal(["SellerA", "SellerB"], result.PreselectedSellerNames.OrderBy(x => x));
+        Assert.Empty(result.UncoveredCardKeys);
+    }
+
+    [Fact]
+    public void Purge_LeavesCardUncoveredWhenTotalAvailableQuantityIsInsufficient()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 3,
+                Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+                Offer("SellerB", "p1", price: 1.1m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Contains("p1", result.UncoveredCardKeys);
+    }
+
+    [Fact]
+    public void Purge_CollapsesSellerNamesCaseInsensitively()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+                Offer("sellera", "p1", price: 1m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("SellerA", "p2", price: 1m, availableQuantity: 1),
+                Offer("sellera", "p2", price: 1m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+        var distinctIgnoringCase = result.PreselectedSellerNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        Assert.Single(distinctIgnoringCase);
+        Assert.Empty(result.UncoveredCardKeys);
+    }
+
     private static MarketCardData Card(string productUrl, int desiredQuantity, params SellerOffer[] offers)
     {
         return new MarketCardData

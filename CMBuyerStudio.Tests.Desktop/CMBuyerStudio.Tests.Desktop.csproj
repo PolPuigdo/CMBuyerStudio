@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+    <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
+    <RestoreDisableParallel>true</RestoreDisableParallel>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="CMBuyerStudio.Application">
+      <HintPath>..\CardmarketSellerFinder.Application\bin\Debug\net10.0\CMBuyerStudio.Application.dll</HintPath>
+    </Reference>
+    <Reference Include="CMBuyerStudio.Domain">
+      <HintPath>..\CardmarketSellerFinder.Domain\bin\Debug\net10.0\CMBuyerStudio.Domain.dll</HintPath>
+    </Reference>
+    <Reference Include="CMBuyerStudio.Desktop">
+      <HintPath>..\CMBuyerStudio.Desktop\bin\Debug\net10.0-windows\CMBuyerStudio.Desktop.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
