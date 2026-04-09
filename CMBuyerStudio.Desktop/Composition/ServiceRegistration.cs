@@ -42,6 +42,7 @@ public static class ServiceRegistration
     public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ShippingCostsOptions>(configuration.GetSection(ShippingCostsOptions.SectionName));
+        services.Configure<PurchaseOptimizerOptions>(configuration.GetSection(PurchaseOptimizerOptions.SectionName));
 
         services.AddSingleton<IWantedCardsService, WantedCardsService>();
         services.AddSingleton<OfferPurger>();

@@ -87,14 +87,22 @@ namespace CMBuyerStudio.Application.Services
             var euPurgedSnapshot = BuildPurgedScopeSnapshot(allMarketData, SellerScopeMode.Eu);
             var localPurgedSnapshot = BuildPurgedScopeSnapshot(allMarketData, SellerScopeMode.Local);
 
-            //Run best seller eu if eu=true
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(new CalculationStartedEvent("EU"));
+            var euOptimizationResult = _purchaseOptimizer.Optimize(euPurgedSnapshot);
+            progress.Report(new CalculationFinishedEvent("EU"));
 
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(new CalculationStartedEvent("Local"));
+            var localOptimizationResult = _purchaseOptimizer.Optimize(localPurgedSnapshot);
+            progress.Report(new CalculationFinishedEvent("Local"));
 
-            //Run best seller local if local=true
-
+            _ = euOptimizationResult;
+            _ = localOptimizationResult;
 
             //Generate HTML report
             //await _htmlReportGenerator.GenerateAsync(xxxxxx, cancellationToken);
+            progress.Report(new RunCompletedEvent());
         }
 
         private static IReadOnlyList<ScrapingTarget> BuildScrapingTargets(IEnumerable<WantedCardGroup> wantedCards)
@@ -138,7 +146,9 @@ namespace CMBuyerStudio.Application.Services
 
             return new PurgedScopeSnapshot
             {
-                MarketData = purgeResult.PurgedMarketData,
+                ScopedMarketData = purgeResult.ScopedMarketData,
+                PurgedMarketData = purgeResult.PurgedMarketData,
+                RemainingRequiredByCardKey = purgeResult.RemainingRequiredByCardKey,
                 FixedCostBySellerName = fixedCostBySellerName,
                 PreselectedSellerNames = purgeResult.PreselectedSellerNames,
                 UncoveredCardKeys = purgeResult.UncoveredCardKeys

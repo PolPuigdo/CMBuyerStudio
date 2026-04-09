@@ -18,7 +18,9 @@ public sealed class OfferPurger
         {
             return new OfferPurgeResult
             {
+                ScopedMarketData = [],
                 PurgedMarketData = [],
+                RemainingRequiredByCardKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                 PreselectedSellerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 UncoveredCardKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 Stats = new OfferPurgeStats()
@@ -35,9 +37,17 @@ public sealed class OfferPurger
             .Select(index => marketData[index].Target.ProductUrl)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        var remainingRequiredByCardKey = Enumerable.Range(0, marketData.Count)
+            .ToDictionary(
+                index => marketData[index].Target.ProductUrl,
+                index => Math.Max(0, pipeline.RequiredByCard[index]),
+                StringComparer.OrdinalIgnoreCase);
+
         return new OfferPurgeResult
         {
+            ScopedMarketData = marketData,
             PurgedMarketData = purgedMarketData,
+            RemainingRequiredByCardKey = remainingRequiredByCardKey,
             PreselectedSellerNames = pipeline.PreselectedSellerNames,
             UncoveredCardKeys = uncoveredCardKeys,
             Stats = new OfferPurgeStats
