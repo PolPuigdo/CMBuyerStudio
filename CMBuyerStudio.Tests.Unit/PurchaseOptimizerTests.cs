@@ -176,6 +176,181 @@ public sealed class PurchaseOptimizerTests
     }
 
     [Fact]
+    public void Optimize_PartialSelection_PrefersMoreFullyCoveredCardsOverCheaperLowerCoverage()
+    {
+        var sut = CreateSut();
+        var mainCard = Card(
+            "p1",
+            desiredQuantity: 2,
+            Offer("WideCoverageA", "p1", price: 1m, availableQuantity: 2),
+            Offer("CheapButShallow", "p1", price: 0.1m, availableQuantity: 1));
+        var secondCard = Card(
+            "p2",
+            desiredQuantity: 1,
+            Offer("WideCoverageB", "p2", price: 1m, availableQuantity: 1));
+        var impossibleCard = Card("p3", desiredQuantity: 1);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [mainCard, secondCard, impossibleCard],
+            purgedMarketData: [mainCard, secondCard, impossibleCard],
+            remainingRequiredByCardKey: Remaining("p1", 2, "p2", 1, "p3", 1)));
+
+        Assert.Contains("WideCoverageA", result.SelectedSellerNames);
+        Assert.Contains("WideCoverageB", result.SelectedSellerNames);
+        Assert.Equal(["p3"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(2.1m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialSelection_PrefersMoreCoveredUnitsWhenFullyCoveredCardsTie()
+    {
+        var sut = CreateSut();
+        var partialCard = Card(
+            "p1",
+            desiredQuantity: 3,
+            Offer("BulkSeller", "p1", price: 1m, availableQuantity: 2),
+            Offer("LastUnitSeller", "p1", price: 10m, availableQuantity: 1));
+        var impossibleCard = Card("p2", desiredQuantity: 1);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [partialCard, impossibleCard],
+            purgedMarketData: [partialCard, impossibleCard],
+            remainingRequiredByCardKey: Remaining("p1", 3, "p2", 1)));
+
+        Assert.Equal(
+            ["BulkSeller", "LastUnitSeller"],
+            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(["p2"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(12m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialSelection_PrefersLowerCoveredCostWhenCoverageTies()
+    {
+        var sut = CreateSut();
+        var coveredCard = Card(
+            "p1",
+            desiredQuantity: 1,
+            Offer("CheaperSeller", "p1", price: 1m, availableQuantity: 1),
+            Offer("ExpensiveSeller", "p1", price: 3m, availableQuantity: 1));
+        var impossibleCard = Card("p2", desiredQuantity: 1);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [coveredCard, impossibleCard],
+            purgedMarketData: [coveredCard, impossibleCard],
+            remainingRequiredByCardKey: Remaining("p1", 1, "p2", 1)));
+
+        Assert.Equal(["CheaperSeller"], result.SelectedSellerNames);
+        Assert.Equal(["p2"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(1m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialSelection_BreaksExactTiesLexicographically()
+    {
+        var sut = CreateSut();
+        var coveredCard = Card(
+            "p1",
+            desiredQuantity: 1,
+            Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p1", price: 1m, availableQuantity: 1));
+        var impossibleCard = Card("p2", desiredQuantity: 1);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [coveredCard, impossibleCard],
+            purgedMarketData: [coveredCard, impossibleCard],
+            remainingRequiredByCardKey: Remaining("p1", 1, "p2", 1),
+            fixedCostBySellerName: new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SellerA"] = 1m,
+                ["SellerB"] = 1m
+            }));
+
+        Assert.Equal(["SellerA"], result.SelectedSellerNames);
+        Assert.Equal(["p2"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Optimize_PartialSelection_KeepsFullCoveragePathUnchanged()
+    {
+        var sut = CreateSut();
+        var firstCard = Card(
+            "p1",
+            desiredQuantity: 1,
+            Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p1", price: 2m, availableQuantity: 1));
+        var secondCard = Card(
+            "p2",
+            desiredQuantity: 1,
+            Offer("SellerA", "p2", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p2", price: 2m, availableQuantity: 1));
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [firstCard, secondCard],
+            purgedMarketData: [firstCard, secondCard],
+            remainingRequiredByCardKey: Remaining("p1", 1, "p2", 1)));
+
+        Assert.Equal(["SellerA"], result.SelectedSellerNames);
+        Assert.Empty(result.UncoveredCardKeys);
+        Assert.Equal(2m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialRegression_MatchesRandom31Fixture()
+    {
+        var sut = CreateSut();
+        var scenario = BuildRandomScenario(31);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: scenario.Cards,
+            purgedMarketData: scenario.Cards,
+            remainingRequiredByCardKey: RemainingForScenario(scenario),
+            fixedCostBySellerName: scenario.FixedCosts));
+
+        Assert.Equal(["S2"], result.SelectedSellerNames);
+        Assert.Equal(["rnd-30-p2"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(2.10m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialRegression_MatchesRandom40Fixture()
+    {
+        var sut = CreateSut();
+        var scenario = BuildRandomScenario(40);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: scenario.Cards,
+            purgedMarketData: scenario.Cards,
+            remainingRequiredByCardKey: RemainingForScenario(scenario),
+            fixedCostBySellerName: scenario.FixedCosts));
+
+        Assert.Equal(
+            ["S2", "S3"],
+            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(["rnd-39-p1"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(5.28m, result.CardsTotalPrice);
+    }
+
+    [Fact]
+    public void Optimize_PartialRegression_MatchesRandom45Fixture()
+    {
+        var sut = CreateSut();
+        var scenario = BuildRandomScenario(45);
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: scenario.Cards,
+            purgedMarketData: scenario.Cards,
+            remainingRequiredByCardKey: RemainingForScenario(scenario),
+            fixedCostBySellerName: scenario.FixedCosts));
+
+        Assert.Equal(
+            ["S4", "S5"],
+            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(["rnd-44-p1"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(7.06m, result.CardsTotalPrice);
+    }
+
+    [Fact]
     public void Optimize_SolvesLargerFixtureWithinReasonableTime()
     {
         var sut = CreateSut(new PurchaseOptimizerOptions
@@ -316,4 +491,70 @@ public sealed class PurchaseOptimizerTests
             ProductUrl = productUrl
         };
     }
+
+    private static Dictionary<string, int> RemainingForScenario(TestScenario scenario)
+        => scenario.Cards.ToDictionary(
+            card => card.Target.ProductUrl,
+            card => card.Target.DesiredQuantity,
+            StringComparer.OrdinalIgnoreCase);
+
+    private static TestScenario BuildRandomScenario(int scenarioNumber, int seed = 12345)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scenarioNumber);
+
+        var random = new Random(seed);
+
+        for (var scenarioIndex = 0; scenarioIndex < scenarioNumber; scenarioIndex++)
+        {
+            var cardCount = random.Next(2, 7);
+            var sellerCount = random.Next(2, 9);
+            var sellerNames = Enumerable.Range(1, sellerCount).Select(index => $"S{index}").ToArray();
+            var fixedCosts = sellerNames.ToDictionary(
+                name => name,
+                _ => decimal.Round((decimal)random.NextDouble() * 3m, 2),
+                StringComparer.OrdinalIgnoreCase);
+
+            var cards = new List<MarketCardData>();
+            for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+            {
+                var productUrl = $"rnd-{scenarioIndex}-p{cardIndex + 1}";
+                var desired = random.Next(1, 4);
+                var offers = new List<SellerOffer>();
+
+                foreach (var sellerName in sellerNames)
+                {
+                    if (random.NextDouble() < 0.45d)
+                    {
+                        offers.Add(Offer(
+                            sellerName,
+                            productUrl,
+                            decimal.Round(0.4m + ((decimal)random.NextDouble() * 5m), 2),
+                            random.Next(1, 4)));
+                    }
+                }
+
+                if (offers.Count == 0)
+                {
+                    offers.Add(Offer(
+                        sellerNames[random.Next(sellerNames.Length)],
+                        productUrl,
+                        decimal.Round(0.4m + ((decimal)random.NextDouble() * 5m), 2),
+                        random.Next(1, 4)));
+                }
+
+                cards.Add(Card(productUrl, desired, [.. offers]));
+            }
+
+            if (scenarioIndex == scenarioNumber - 1)
+            {
+                return new TestScenario(cards, fixedCosts);
+            }
+        }
+
+        throw new InvalidOperationException($"No se pudo generar el escenario random-{scenarioNumber}.");
+    }
+
+    private sealed record TestScenario(
+        IReadOnlyList<MarketCardData> Cards,
+        IReadOnlyDictionary<string, decimal> FixedCosts);
 }

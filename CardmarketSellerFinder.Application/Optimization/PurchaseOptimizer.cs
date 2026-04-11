@@ -101,26 +101,38 @@ public sealed class PurchaseOptimizer
             settings)
             .Solve(beamResult);
 
-        var activeSelection = reducedExactResult.SelectedOrderedSellerIndices
-            .Select(index => orderedReducedSellers[index].SellerName)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        if (!reducedExactResult.IsFullCoverage && beamResult.IsFullCoverage)
+        HashSet<string> activeSelection;
+        if (reducedExactResult.IsFullCoverage || beamResult.IsFullCoverage)
         {
-            activeSelection = beamResult.SelectedOrderedSellerIndices
+            activeSelection = reducedExactResult.SelectedOrderedSellerIndices
                 .Select(index => orderedReducedSellers[index].SellerName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
 
-        if (settings.EnableFinalCostRefine
-            && activeSelection.Count > 0
-            && activeSelection.Count <= settings.ExactMaxK)
+            if (!reducedExactResult.IsFullCoverage && beamResult.IsFullCoverage)
+            {
+                activeSelection = beamResult.SelectedOrderedSellerIndices
+                    .Select(index => orderedReducedSellers[index].SellerName)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+
+            if (settings.EnableFinalCostRefine
+                && activeSelection.Count > 0
+                && activeSelection.Count <= settings.ExactMaxK)
+            {
+                activeSelection = RefineSelectionForFixedSellerCountOnCanonical(
+                    orderedReducedSellers,
+                    activeRequiredByCard,
+                    activeSelection,
+                    ResolveParallelism());
+            }
+        }
+        else
         {
-            activeSelection = RefineSelectionForFixedSellerCountOnCanonical(
+            activeSelection = RefinePartialSelection(
                 orderedReducedSellers,
                 activeRequiredByCard,
-                activeSelection,
-                ResolveParallelism());
+                beamResult.SelectedOrderedSellerIndices,
+                reducedExactResult.SelectedOrderedSellerIndices);
         }
 
         selectedSellerNames.UnionWith(activeSelection);
@@ -792,6 +804,662 @@ public sealed class PurchaseOptimizer
         }
 
         return totalFixedCost;
+    }
+
+    private static HashSet<string> RefinePartialSelection(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyList<int> beamSelection,
+        IReadOnlyList<int> reducedExactSelection)
+    {
+        var cardCount = requiredByCard.Length;
+        SelectionCoverageQuality? bestQuality = null;
+
+        var primarySeed = EvaluateBetterPartialSeed(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            beamSelection,
+            reducedExactSelection);
+        bestQuality = ConsiderPartialCandidate(
+            bestQuality,
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            primarySeed);
+
+        var provisionalTargetSellerCount = Math.Min(4, orderedSellers.Count);
+        if (provisionalTargetSellerCount > 0)
+        {
+            var provisionalSelection = BuildGreedyProvisionalSelection(
+                orderedSellers,
+                requiredByCard,
+                cardCount,
+                provisionalTargetSellerCount);
+            bestQuality = ConsiderPartialCandidate(
+                bestQuality,
+                orderedSellers,
+                requiredByCard,
+                cardCount,
+                provisionalSelection);
+        }
+
+        return bestQuality is null
+            ? []
+            : PolishPartialSelectionByObjective(
+                orderedSellers,
+                requiredByCard,
+                cardCount,
+                bestQuality.SelectedOrderedSellerIndices)
+                .Select(index => orderedSellers[index].SellerName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IReadOnlyList<int> EvaluateBetterPartialSeed(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> leftSelection,
+        IReadOnlyList<int> rightSelection)
+    {
+        var leftQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            leftSelection);
+        var rightQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            rightSelection);
+
+        return IsBetterCoverageCandidate(rightQuality, leftQuality)
+            ? rightQuality.SelectedOrderedSellerIndices
+            : leftQuality.SelectedOrderedSellerIndices;
+    }
+
+    private static SelectionCoverageQuality? ConsiderPartialCandidate(
+        SelectionCoverageQuality? currentBest,
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> selection)
+    {
+        if (selection.Count == 0)
+        {
+            return currentBest;
+        }
+
+        var candidateQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            selection);
+        if (IsBetterCoverageCandidate(candidateQuality, currentBest))
+        {
+            currentBest = candidateQuality;
+        }
+
+        var swappedSelection = RefineSelectionWithSingleSwap(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            selection);
+        var swappedQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            swappedSelection);
+        if (IsBetterCoverageCandidate(swappedQuality, currentBest))
+        {
+            currentBest = swappedQuality;
+        }
+
+        var prunedSelection = PruneRedundantSellers(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            swappedSelection);
+        var prunedQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            prunedSelection);
+        if (IsBetterCoverageCandidate(prunedQuality, currentBest))
+        {
+            currentBest = prunedQuality;
+        }
+
+        return currentBest;
+    }
+
+    private static List<int> BuildGreedyProvisionalSelection(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        int targetSellerCount)
+    {
+        var selected = new List<int>(targetSellerCount);
+        var currentQuality = EvaluateSelectionCoverage(orderedSellers, requiredByCard, cardCount, selected);
+
+        while (selected.Count < targetSellerCount)
+        {
+            SelectionCoverageQuality? bestCandidate = null;
+
+            for (var sellerIndex = 0; sellerIndex < orderedSellers.Count; sellerIndex++)
+            {
+                if (selected.Contains(sellerIndex))
+                {
+                    continue;
+                }
+
+                var candidateSelection = new List<int>(selected.Count + 1);
+                candidateSelection.AddRange(selected);
+                candidateSelection.Add(sellerIndex);
+
+                var candidateQuality = EvaluateSelectionCoverage(
+                    orderedSellers,
+                    requiredByCard,
+                    cardCount,
+                    candidateSelection);
+
+                if (IsBetterCoverageCandidate(candidateQuality, bestCandidate))
+                {
+                    bestCandidate = candidateQuality;
+                }
+            }
+
+            if (bestCandidate is null || !IsBetterCoverageCandidate(bestCandidate, currentQuality))
+            {
+                break;
+            }
+
+            selected = bestCandidate.SelectedOrderedSellerIndices.ToList();
+            currentQuality = bestCandidate;
+
+            if (currentQuality.IsFullyCovered)
+            {
+                break;
+            }
+        }
+
+        return selected;
+    }
+
+    private static List<int> RefineSelectionWithSingleSwap(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> initialSelection)
+    {
+        var currentSelection = initialSelection
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+
+        if (currentSelection.Count <= 1)
+        {
+            return currentSelection;
+        }
+
+        var currentQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            currentSelection);
+
+        while (true)
+        {
+            SelectionCoverageQuality? bestSwapQuality = null;
+
+            for (var selectedOffset = 0; selectedOffset < currentSelection.Count; selectedOffset++)
+            {
+                for (var candidateIndex = 0; candidateIndex < orderedSellers.Count; candidateIndex++)
+                {
+                    if (currentSelection.Contains(candidateIndex))
+                    {
+                        continue;
+                    }
+
+                    var swapped = new List<int>(currentSelection);
+                    swapped[selectedOffset] = candidateIndex;
+                    swapped = swapped
+                        .Distinct()
+                        .OrderBy(index => index)
+                        .ToList();
+
+                    if (swapped.Count != currentSelection.Count)
+                    {
+                        continue;
+                    }
+
+                    var swappedQuality = EvaluateSelectionCoverage(
+                        orderedSellers,
+                        requiredByCard,
+                        cardCount,
+                        swapped);
+
+                    if (!IsBetterCoverageCandidate(swappedQuality, currentQuality))
+                    {
+                        continue;
+                    }
+
+                    if (IsBetterCoverageCandidate(swappedQuality, bestSwapQuality))
+                    {
+                        bestSwapQuality = swappedQuality;
+                    }
+                }
+            }
+
+            if (bestSwapQuality is null)
+            {
+                break;
+            }
+
+            currentQuality = bestSwapQuality;
+            currentSelection = bestSwapQuality.SelectedOrderedSellerIndices.ToList();
+        }
+
+        return currentSelection;
+    }
+
+    private static List<int> PruneRedundantSellers(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> initialSelection)
+    {
+        var currentSelection = initialSelection
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+
+        if (currentSelection.Count <= 1)
+        {
+            return currentSelection;
+        }
+
+        var currentQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            currentSelection);
+
+        while (true)
+        {
+            SelectionCoverageQuality? bestPrunedQuality = null;
+
+            for (var selectedOffset = 0; selectedOffset < currentSelection.Count; selectedOffset++)
+            {
+                var pruned = new List<int>(currentSelection);
+                pruned.RemoveAt(selectedOffset);
+
+                var prunedQuality = EvaluateSelectionCoverage(
+                    orderedSellers,
+                    requiredByCard,
+                    cardCount,
+                    pruned);
+
+                if (!IsBetterCoverageCandidate(prunedQuality, currentQuality))
+                {
+                    continue;
+                }
+
+                if (IsBetterCoverageCandidate(prunedQuality, bestPrunedQuality))
+                {
+                    bestPrunedQuality = prunedQuality;
+                }
+            }
+
+            if (bestPrunedQuality is null)
+            {
+                break;
+            }
+
+            currentQuality = bestPrunedQuality;
+            currentSelection = bestPrunedQuality.SelectedOrderedSellerIndices.ToList();
+        }
+
+        return currentSelection;
+    }
+
+    private static SelectionCoverageQuality EvaluateSelectionCoverage(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> selectedIndices)
+    {
+        var selectedOrdered = selectedIndices
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+
+        var coveredByCard = new int[cardCount];
+        foreach (var sellerIndex in selectedOrdered)
+        {
+            foreach (var cardIndex in orderedSellers[sellerIndex].ActiveCards)
+            {
+                coveredByCard[cardIndex] += orderedSellers[sellerIndex].QtyByCard[cardIndex];
+            }
+        }
+
+        var fullyCoveredCards = 0;
+        var coveredUnits = 0;
+        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+        {
+            var requiredQty = requiredByCard[cardIndex];
+            if (requiredQty <= 0)
+            {
+                continue;
+            }
+
+            var coveredQty = Math.Min(requiredQty, coveredByCard[cardIndex]);
+            coveredUnits += coveredQty;
+
+            if (coveredByCard[cardIndex] >= requiredQty)
+            {
+                fullyCoveredCards++;
+            }
+        }
+
+        var coveredCost = AddCost(
+            CalculateCostForCoveredUnits(
+                orderedSellers,
+                requiredByCard,
+                cardCount,
+                selectedOrdered,
+                coveredByCard),
+            CalculateSelectedSellersFixedCost(orderedSellers, selectedOrdered));
+
+        return new SelectionCoverageQuality(
+            selectedOrdered,
+            coveredByCard,
+            fullyCoveredCards,
+            coveredUnits,
+            coveredCost,
+            IsFullyCovered(requiredByCard, coveredByCard, cardCount));
+    }
+
+    private static decimal CalculateCostForCoveredUnits(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> selectedOrderedSellerIndices,
+        int[] coveredByCard)
+    {
+        var totalCost = 0m;
+
+        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+        {
+            var targetQty = Math.Min(requiredByCard[cardIndex], coveredByCard[cardIndex]);
+            if (targetQty <= 0)
+            {
+                continue;
+            }
+
+            var dp = new decimal[targetQty + 1];
+            Array.Fill(dp, InfiniteCost);
+            dp[0] = 0m;
+
+            foreach (var sellerIndex in selectedOrderedSellerIndices)
+            {
+                var profile = orderedSellers[sellerIndex].CardProfiles[cardIndex];
+                if (profile is null)
+                {
+                    continue;
+                }
+
+                var next = (decimal[])dp.Clone();
+                var maxTake = Math.Min(profile.QtyUsable, targetQty);
+
+                for (var currentQty = 0; currentQty <= targetQty; currentQty++)
+                {
+                    var baseCost = dp[currentQty];
+                    if (IsInfinite(baseCost))
+                    {
+                        continue;
+                    }
+
+                    for (var take = 1; take <= maxTake && currentQty + take <= targetQty; take++)
+                    {
+                        var newQty = currentQty + take;
+                        var candidateCost = AddCost(baseCost, profile.PrefixCosts[take]);
+                        if (candidateCost + CostEpsilon < next[newQty])
+                        {
+                            next[newQty] = candidateCost;
+                        }
+                    }
+                }
+
+                dp = next;
+            }
+
+            if (IsInfinite(dp[targetQty]))
+            {
+                return InfiniteCost;
+            }
+
+            totalCost = AddCost(totalCost, dp[targetQty]);
+        }
+
+        return totalCost;
+    }
+
+    private static bool IsFullyCovered(int[] requiredByCard, int[] coveredByCard, int cardCount)
+    {
+        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+        {
+            if (requiredByCard[cardIndex] > coveredByCard[cardIndex])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsBetterCoverageCandidate(
+        SelectionCoverageQuality candidate,
+        SelectionCoverageQuality? current)
+    {
+        if (current is null)
+        {
+            return true;
+        }
+
+        var coveredCardsComparison = candidate.FullyCoveredCards.CompareTo(current.FullyCoveredCards);
+        if (coveredCardsComparison != 0)
+        {
+            return coveredCardsComparison > 0;
+        }
+
+        var coveredUnitsComparison = candidate.CoveredUnits.CompareTo(current.CoveredUnits);
+        if (coveredUnitsComparison != 0)
+        {
+            return coveredUnitsComparison > 0;
+        }
+
+        if (candidate.CoveredCost + CostEpsilon < current.CoveredCost)
+        {
+            return true;
+        }
+
+        if (current.CoveredCost + CostEpsilon < candidate.CoveredCost)
+        {
+            return false;
+        }
+
+        return CompareSelectionsLexicographically(
+            candidate.SelectedOrderedSellerIndices,
+            current.SelectedOrderedSellerIndices) < 0;
+    }
+
+    private static IReadOnlyList<int> PolishPartialSelectionByObjective(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> initialSelection)
+    {
+        var currentSelection = initialSelection
+            .Distinct()
+            .OrderBy(index => index)
+            .ToList();
+
+        if (currentSelection.Count == 0)
+        {
+            return currentSelection;
+        }
+
+        var currentObjective = EvaluatePartialSelectionObjective(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            currentSelection);
+
+        while (true)
+        {
+            PartialSelectionObjective? bestCandidate = null;
+            var currentSelectionSet = currentSelection.ToHashSet();
+
+            if (currentSelection.Count > 1)
+            {
+                for (var selectedOffset = 0; selectedOffset < currentSelection.Count; selectedOffset++)
+                {
+                    var pruned = new List<int>(currentSelection);
+                    pruned.RemoveAt(selectedOffset);
+
+                    var prunedObjective = EvaluatePartialSelectionObjective(
+                        orderedSellers,
+                        requiredByCard,
+                        cardCount,
+                        pruned);
+
+                    if (!IsBetterPartialObjectiveCandidate(prunedObjective, currentObjective))
+                    {
+                        continue;
+                    }
+
+                    if (IsBetterPartialObjectiveCandidate(prunedObjective, bestCandidate))
+                    {
+                        bestCandidate = prunedObjective;
+                    }
+                }
+            }
+
+            for (var selectedOffset = 0; selectedOffset < currentSelection.Count; selectedOffset++)
+            {
+                for (var candidateIndex = 0; candidateIndex < orderedSellers.Count; candidateIndex++)
+                {
+                    if (currentSelectionSet.Contains(candidateIndex))
+                    {
+                        continue;
+                    }
+
+                    var swapped = new List<int>(currentSelection);
+                    swapped[selectedOffset] = candidateIndex;
+                    swapped = swapped
+                        .Distinct()
+                        .OrderBy(index => index)
+                        .ToList();
+
+                    if (swapped.Count != currentSelection.Count)
+                    {
+                        continue;
+                    }
+
+                    var swappedObjective = EvaluatePartialSelectionObjective(
+                        orderedSellers,
+                        requiredByCard,
+                        cardCount,
+                        swapped);
+
+                    if (!IsBetterPartialObjectiveCandidate(swappedObjective, currentObjective))
+                    {
+                        continue;
+                    }
+
+                    if (IsBetterPartialObjectiveCandidate(swappedObjective, bestCandidate))
+                    {
+                        bestCandidate = swappedObjective;
+                    }
+                }
+            }
+
+            if (bestCandidate is null)
+            {
+                break;
+            }
+
+            currentObjective = bestCandidate;
+            currentSelection = bestCandidate.SelectedOrderedSellerIndices.ToList();
+        }
+
+        return currentSelection;
+    }
+
+    private static PartialSelectionObjective EvaluatePartialSelectionObjective(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount,
+        IReadOnlyList<int> selection)
+    {
+        var coverageQuality = EvaluateSelectionCoverage(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            selection);
+
+        var uncoveredCardIndices = new List<int>();
+        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+        {
+            if (requiredByCard[cardIndex] > coverageQuality.CoveredByCard[cardIndex])
+            {
+                uncoveredCardIndices.Add(cardIndex);
+            }
+        }
+
+        return new PartialSelectionObjective(
+            coverageQuality.SelectedOrderedSellerIndices,
+            uncoveredCardIndices,
+            coverageQuality.CoveredCost);
+    }
+
+    private static bool IsBetterPartialObjectiveCandidate(
+        PartialSelectionObjective candidate,
+        PartialSelectionObjective? current)
+    {
+        if (current is null)
+        {
+            return true;
+        }
+
+        var uncoveredCountComparison = candidate.UncoveredCardIndices.Count.CompareTo(current.UncoveredCardIndices.Count);
+        if (uncoveredCountComparison != 0)
+        {
+            return uncoveredCountComparison < 0;
+        }
+
+        var uncoveredIndicesComparison = CompareSelectionsLexicographically(
+            candidate.UncoveredCardIndices,
+            current.UncoveredCardIndices);
+        if (uncoveredIndicesComparison != 0)
+        {
+            return uncoveredIndicesComparison < 0;
+        }
+
+        if (candidate.TotalCost + CostEpsilon < current.TotalCost)
+        {
+            return true;
+        }
+
+        if (current.TotalCost + CostEpsilon < candidate.TotalCost)
+        {
+            return false;
+        }
+
+        return CompareSelectionsLexicographically(
+            candidate.SelectedOrderedSellerIndices,
+            current.SelectedOrderedSellerIndices) < 0;
     }
 
     private static List<PurchaseAssignment> BuildAssignments(
@@ -2291,6 +2959,19 @@ public sealed class PurchaseOptimizer
 
     private sealed record SelectionResult(
         IReadOnlyList<int> SelectedOrderedSellerIndices,
+        decimal TotalCost);
+
+    private sealed record SelectionCoverageQuality(
+        IReadOnlyList<int> SelectedOrderedSellerIndices,
+        int[] CoveredByCard,
+        int FullyCoveredCards,
+        int CoveredUnits,
+        decimal CoveredCost,
+        bool IsFullyCovered);
+
+    private sealed record PartialSelectionObjective(
+        IReadOnlyList<int> SelectedOrderedSellerIndices,
+        IReadOnlyList<int> UncoveredCardIndices,
         decimal TotalCost);
 
     private sealed class SellerCardProfile
