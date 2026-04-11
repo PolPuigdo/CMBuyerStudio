@@ -104,6 +104,122 @@ public sealed class RunAnalysisServiceTests
         Assert.IsType<RunCompletedEvent>(progressCollector.Events[^1]);
     }
 
+    [Fact]
+    public async Task RunAsync_AggregatesVariantsIntoSingleLogicalCardBeforeOptimization()
+    {
+        const string variantAUrl = "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Lightning-Bolt";
+        const string variantBUrl = "https://www.cardmarket.com/en/Magic/Products/Singles/Set-B/Lightning-Bolt";
+
+        var wantedCardsRepository = new StubWantedCardsRepository(
+        [
+            new WantedCardGroup
+            {
+                CardName = "Lightning Bolt",
+                DesiredQuantity = 2,
+                Variants =
+                [
+                    new WantedCardVariant
+                    {
+                        SetName = "Set A",
+                        ProductUrl = variantAUrl
+                    },
+                    new WantedCardVariant
+                    {
+                        SetName = "Set B",
+                        ProductUrl = variantBUrl
+                    }
+                ]
+            }
+        ]);
+        var cacheService = new StubMarketDataCacheService(
+        [
+            MarketData(
+                "Lightning Bolt",
+                "Set A",
+                variantAUrl,
+                99,
+                Offer("MixSeller", "Spain", 0.40m, 1, "Lightning Bolt", "Set A", variantAUrl)),
+            MarketData(
+                "Lightning Bolt",
+                "Set B",
+                variantBUrl,
+                99,
+                Offer("MixSeller", "Spain", 0.50m, 1, "Lightning Bolt", "Set B", variantBUrl))
+        ]);
+        var reportGenerator = new RecordingHtmlReportGenerator();
+        var sut = new RunAnalysisService(
+            wantedCardsRepository,
+            cacheService,
+            new EmptyCardMarketScraper(),
+            reportGenerator,
+            new OfferPurger(),
+            new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
+            Options.Create(new ShippingCostsOptions
+            {
+                Default = 3.0,
+                Countries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Spain"] = 1.45
+                }
+            }));
+
+        await sut.RunAsync(new ProgressCollector());
+
+        var euRequest = Assert.Single(reportGenerator.Requests.Where(request => request.Scope == SellerScopeMode.Eu));
+        var scopedCard = Assert.Single(euRequest.Snapshot.ScopedMarketData);
+        Assert.Equal("Lightning Bolt", scopedCard.Target.RequestKey);
+        Assert.Equal("Lightning Bolt", scopedCard.Target.CardName);
+        Assert.Equal(2, scopedCard.Target.DesiredQuantity);
+        Assert.Equal(2, scopedCard.Offers.Count);
+
+        Assert.Equal(["MixSeller"], euRequest.OptimizationResult.SelectedSellerNames);
+        Assert.Equal(2, euRequest.OptimizationResult.Assignments.Sum(assignment => assignment.Quantity));
+        Assert.Contains(euRequest.OptimizationResult.Assignments, assignment => assignment.ProductUrl == variantAUrl);
+        Assert.Contains(euRequest.OptimizationResult.Assignments, assignment => assignment.ProductUrl == variantBUrl);
+    }
+
+    private static MarketCardData MarketData(
+        string cardName,
+        string setName,
+        string productUrl,
+        int desiredQuantity,
+        params SellerOffer[] offers)
+    {
+        return new MarketCardData
+        {
+            Target = new ScrapingTarget
+            {
+                CardName = cardName,
+                SetName = setName,
+                ProductUrl = productUrl,
+                DesiredQuantity = desiredQuantity
+            },
+            ScrapedAtUtc = DateTime.UtcNow,
+            Offers = offers
+        };
+    }
+
+    private static SellerOffer Offer(
+        string sellerName,
+        string country,
+        decimal price,
+        int availableQuantity,
+        string cardName,
+        string setName,
+        string productUrl)
+    {
+        return new SellerOffer
+        {
+            SellerName = sellerName,
+            Country = country,
+            Price = price,
+            AvailableQuantity = availableQuantity,
+            CardName = cardName,
+            SetName = setName,
+            ProductUrl = productUrl
+        };
+    }
+
     private sealed class StubWantedCardsRepository : IWantedCardsRepository
     {
         private readonly IReadOnlyList<WantedCardGroup> _groups;

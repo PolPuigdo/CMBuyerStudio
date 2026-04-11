@@ -107,8 +107,8 @@ public sealed class HtmlReportGenerator : IHtmlReportGenerator
             .Select(group =>
             {
                 var offers = group.SelectMany(card => card.Offers).ToList();
-                var distinctUrls = group
-                    .Select(card => card.Target.ProductUrl)
+                var distinctUrls = offers
+                    .Select(offer => offer.ProductUrl)
                     .Where(url => !string.IsNullOrWhiteSpace(url))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .OrderBy(url => url, StringComparer.OrdinalIgnoreCase)
@@ -173,13 +173,18 @@ public sealed class HtmlReportGenerator : IHtmlReportGenerator
         }
 
         return marketData
-            .Where(card => uncoveredCardKeys.Contains(card.Target.ProductUrl))
+            .Where(card => uncoveredCardKeys.Contains(ResolveCardKey(card.Target)))
             .Select(card => card.Target.CardName)
             .Where(cardName => !string.IsNullOrWhiteSpace(cardName))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(cardName => cardName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private static string ResolveCardKey(ScrapingTarget target)
+        => string.IsNullOrWhiteSpace(target.RequestKey)
+            ? target.ProductUrl
+            : target.RequestKey;
 
     private static string RenderHtml(ReportViewModel report)
     {

@@ -35,7 +35,7 @@ public sealed class HtmlReportGeneratorTests
                 CardsTotalPrice = 0.15m,
                 UncoveredCardKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    "https://www.cardmarket.com/en/Magic/Products/Singles/Set-C/Fatal-Push"
+                    "Fatal Push"
                 }
             },
             Snapshot = new PurgedScopeSnapshot
@@ -44,20 +44,15 @@ public sealed class HtmlReportGeneratorTests
                 [
                     Card(
                         "Lightning Bolt",
-                        "Set A",
                         "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Lightning-Bolt",
-                        1,
-                        Offer("MagicBarcelona", "Spain", 0.15m, 1, "Lightning Bolt", "Set A", "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Lightning-Bolt")),
-                    Card(
                         "Lightning Bolt",
-                        "Set B",
-                        "https://www.cardmarket.com/en/Magic/Products/Singles/Set-B/Lightning-Bolt",
                         1,
+                        Offer("MagicBarcelona", "Spain", 0.15m, 1, "Lightning Bolt", "Set A", "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Lightning-Bolt"),
                         Offer("MagicBarcelona", "Spain", 0.25m, 1, "Lightning Bolt", "Set B", "https://www.cardmarket.com/en/Magic/Products/Singles/Set-B/Lightning-Bolt")),
                     Card(
                         "Fatal Push",
-                        "Set C",
                         "https://www.cardmarket.com/en/Magic/Products/Singles/Set-C/Fatal-Push",
+                        "Fatal Push",
                         1)
                 ],
                 PurgedMarketData = [],
@@ -67,7 +62,7 @@ public sealed class HtmlReportGeneratorTests
                 },
                 UncoveredCardKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    "https://www.cardmarket.com/en/Magic/Products/Singles/Set-C/Fatal-Push"
+                    "Fatal Push"
                 }
             }
         };
@@ -83,6 +78,7 @@ public sealed class HtmlReportGeneratorTests
         Assert.Contains("Fatal Push", html);
         Assert.Contains("N/A", html);
         Assert.Contains("Source 1", html);
+        Assert.Contains("Source 2", html);
         Assert.Contains("https://www.cardmarket.com/es/Magic/Users/MagicBarcelona", html);
     }
 
@@ -119,8 +115,8 @@ public sealed class HtmlReportGeneratorTests
                 [
                     Card(
                         "Terminate",
-                        "Set A",
                         "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Terminate",
+                        "Terminate",
                         2,
                         Offer("Kashu", "Romania", 0.19m, 2, "Terminate", "Set A", "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Terminate"))
                 ],
@@ -144,8 +140,8 @@ public sealed class HtmlReportGeneratorTests
 
     private static MarketCardData Card(
         string cardName,
-        string setName,
         string productUrl,
+        string requestKey,
         int desiredQuantity,
         params SellerOffer[] offers)
     {
@@ -153,8 +149,9 @@ public sealed class HtmlReportGeneratorTests
         {
             Target = new ScrapingTarget
             {
+                RequestKey = requestKey,
                 CardName = cardName,
-                SetName = setName,
+                SetName = string.Empty,
                 ProductUrl = productUrl,
                 DesiredQuantity = desiredQuantity
             },

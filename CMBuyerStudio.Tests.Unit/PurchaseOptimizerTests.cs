@@ -246,6 +246,27 @@ public sealed class PurchaseOptimizerTests
     }
 
     [Fact]
+    public void Optimize_UsesRequestKeyForUncoveredCards()
+    {
+        var sut = CreateSut();
+        var card = Card(
+            productUrl: "https://example.com/lightning-bolt-set-a",
+            desiredQuantity: 2,
+            requestKey: "Lightning Bolt");
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [card],
+            purgedMarketData: [card],
+            remainingRequiredByCardKey: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Lightning Bolt"] = 2
+            }));
+
+        Assert.Equal(["Lightning Bolt"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Empty(result.Assignments);
+    }
+
+    [Fact]
     public void Optimize_PartialSelection_BreaksExactTiesLexicographically()
     {
         var sut = CreateSut();
@@ -459,11 +480,15 @@ public sealed class PurchaseOptimizerTests
     }
 
     private static MarketCardData Card(string productUrl, int desiredQuantity, params SellerOffer[] offers)
+        => Card(productUrl, desiredQuantity, requestKey: string.Empty, offers);
+
+    private static MarketCardData Card(string productUrl, int desiredQuantity, string requestKey, params SellerOffer[] offers)
     {
         return new MarketCardData
         {
             Target = new ScrapingTarget
             {
+                RequestKey = requestKey,
                 CardName = productUrl,
                 SetName = "SET",
                 ProductUrl = productUrl,

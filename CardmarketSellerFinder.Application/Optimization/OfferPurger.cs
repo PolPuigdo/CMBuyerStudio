@@ -34,12 +34,12 @@ public sealed class OfferPurger
             pipeline.RemainingSellers);
 
         var uncoveredCardKeys = pipeline.UncoveredCardIndices
-            .Select(index => marketData[index].Target.ProductUrl)
+            .Select(index => ResolveCardKey(marketData[index].Target))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var remainingRequiredByCardKey = Enumerable.Range(0, marketData.Count)
             .ToDictionary(
-                index => marketData[index].Target.ProductUrl,
+                index => ResolveCardKey(marketData[index].Target),
                 index => Math.Max(0, pipeline.RequiredByCard[index]),
                 StringComparer.OrdinalIgnoreCase);
 
@@ -60,6 +60,11 @@ public sealed class OfferPurger
             }
         };
     }
+
+    private static string ResolveCardKey(ScrapingTarget target)
+        => string.IsNullOrWhiteSpace(target.RequestKey)
+            ? target.ProductUrl
+            : target.RequestKey;
 
     private static decimal ResolveSellerFixedCost(
     string sellerName,

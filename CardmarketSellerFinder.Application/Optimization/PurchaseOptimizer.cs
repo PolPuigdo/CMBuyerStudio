@@ -36,7 +36,7 @@ public sealed class PurchaseOptimizer
 
         var requiredByCard = snapshot.PurgedMarketData
             .Select(card => ResolveRemainingRequiredQuantity(
-                card.Target.ProductUrl,
+                ResolveCardKey(card.Target),
                 card.Target.DesiredQuantity,
                 snapshot.RemainingRequiredByCardKey))
             .ToArray();
@@ -178,23 +178,28 @@ public sealed class PurchaseOptimizer
         {
             if (requiredByCard[cardIndex] > 0)
             {
-                uncoveredCardKeys.Add(marketData[cardIndex].Target.ProductUrl);
+                uncoveredCardKeys.Add(ResolveCardKey(marketData[cardIndex].Target));
             }
         }
     }
 
     private static int ResolveRemainingRequiredQuantity(
-        string productUrl,
+        string cardKey,
         int desiredQuantity,
         IReadOnlyDictionary<string, int> remainingRequiredByCardKey)
     {
-        if (remainingRequiredByCardKey.TryGetValue(productUrl, out var remaining))
+        if (remainingRequiredByCardKey.TryGetValue(cardKey, out var remaining))
         {
             return Math.Max(0, remaining);
         }
 
         return Math.Max(0, desiredQuantity);
     }
+
+    private static string ResolveCardKey(ScrapingTarget target)
+        => string.IsNullOrWhiteSpace(target.RequestKey)
+            ? target.ProductUrl
+            : target.RequestKey;
 
     private static RuntimeSettings ResolveRuntimeSettings(PurchaseOptimizerOptions options)
     {
@@ -1521,7 +1526,7 @@ public sealed class PurchaseOptimizer
 
             if (covered < quantityToBuy)
             {
-                uncoveredCards.Add(card.Target.ProductUrl);
+                uncoveredCards.Add(ResolveCardKey(card.Target));
             }
         }
 

@@ -207,12 +207,37 @@ public sealed class OfferPurgerTests
         Assert.Empty(result.UncoveredCardKeys);
     }
 
+    [Fact]
+    public void Purge_UsesRequestKeyForRemainingRequiredAndUncoveredCards()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "https://example.com/variant-a",
+                3,
+                "Lightning Bolt",
+                Offer("SellerA", "https://example.com/variant-a", price: 1m, availableQuantity: 1),
+                Offer("SellerB", "https://example.com/variant-b", price: 1.1m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Contains("Lightning Bolt", result.UncoveredCardKeys);
+        Assert.Equal(2, result.RemainingRequiredByCardKey["Lightning Bolt"]);
+        Assert.DoesNotContain("https://example.com/variant-a", result.RemainingRequiredByCardKey.Keys);
+    }
+
     private static MarketCardData Card(string productUrl, int desiredQuantity, params SellerOffer[] offers)
+        => Card(productUrl, desiredQuantity, requestKey: string.Empty, offers);
+
+    private static MarketCardData Card(string productUrl, int desiredQuantity, string requestKey, params SellerOffer[] offers)
     {
         return new MarketCardData
         {
             Target = new ScrapingTarget
             {
+                RequestKey = requestKey,
                 CardName = productUrl,
                 SetName = "SET",
                 ProductUrl = productUrl,

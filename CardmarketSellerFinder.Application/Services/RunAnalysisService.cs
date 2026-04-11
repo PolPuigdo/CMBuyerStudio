@@ -74,18 +74,19 @@ namespace CMBuyerStudio.Application.Services
             // Scrap not cached cards
             var scrapedMarketData = new List<MarketCardData>();
 
-            await foreach (var marketData in _cardMarketScraper.ScrapeManyAsync(targetsToScrape, cancellationToken))
-            {
-                scrapedMarketData.Add(marketData);
-                await _marketDataCacheService.SaveAsync(marketData, cancellationToken);
-            }
+            //await foreach (var marketData in _cardMarketScraper.ScrapeManyAsync(targetsToScrape, cancellationToken))
+            //{
+            //    scrapedMarketData.Add(marketData);
+            //    await _marketDataCacheService.SaveAsync(marketData, cancellationToken);
+            //}
 
             //Merge cached and scraped data
             var allMarketData = cachedMarketData.Concat(scrapedMarketData).ToList();
+            var analysisMarketData = BuildAnalysisMarketData(wantedCards, allMarketData);
 
             // Purge useless sellers
-            var euPurgedSnapshot = BuildPurgedScopeSnapshot(allMarketData, SellerScopeMode.Eu);
-            var localPurgedSnapshot = BuildPurgedScopeSnapshot(allMarketData, SellerScopeMode.Local);
+            var euPurgedSnapshot = BuildPurgedScopeSnapshot(analysisMarketData, SellerScopeMode.Eu);
+            var localPurgedSnapshot = BuildPurgedScopeSnapshot(analysisMarketData, SellerScopeMode.Local);
 
             cancellationToken.ThrowIfCancellationRequested();
             progress.Report(new CalculationStartedEvent("EU"));
@@ -129,10 +130,13 @@ namespace CMBuyerStudio.Application.Services
 
             foreach (var group in wantedCards)
             {
-                if (string.IsNullOrWhiteSpace(group.CardName) || group.DesiredQuantity <= 0)
+                var cardName = group.CardName?.Trim();
+                if (string.IsNullOrWhiteSpace(cardName) || group.DesiredQuantity <= 0)
                 {
                     continue;
                 }
+
+                var requestKey = BuildRequestKey(cardName);
 
                 foreach (var variant in group.Variants)
                 {
@@ -143,7 +147,8 @@ namespace CMBuyerStudio.Application.Services
 
                     targets.Add(new ScrapingTarget
                     {
-                        CardName = group.CardName,
+                        RequestKey = requestKey,
+                        CardName = cardName,
                         SetName = variant.SetName,
                         ProductUrl = variant.ProductUrl,
                         DesiredQuantity = group.DesiredQuantity
@@ -153,6 +158,85 @@ namespace CMBuyerStudio.Application.Services
 
             return targets;
         }
+
+        private static IReadOnlyList<MarketCardData> BuildAnalysisMarketData(
+            IReadOnlyList<WantedCardGroup> wantedCards,
+            IReadOnlyList<MarketCardData> allMarketData)
+        {
+            var marketDataByProductUrl = allMarketData
+                .Where(x => !string.IsNullOrWhiteSpace(x.Target.ProductUrl))
+                .GroupBy(x => x.Target.ProductUrl, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
+            var result = new List<MarketCardData>();
+
+            foreach (var group in wantedCards)
+            {
+                var cardName = group.CardName?.Trim();
+                if (string.IsNullOrWhiteSpace(cardName) || group.DesiredQuantity <= 0)
+                {
+                    continue;
+                }
+
+                var variants = group.Variants
+                    .Where(variant => !string.IsNullOrWhiteSpace(variant.ProductUrl))
+                    .GroupBy(variant => variant.ProductUrl, StringComparer.OrdinalIgnoreCase)
+                    .Select(groupedVariant => groupedVariant.First())
+                    .ToList();
+
+                if (variants.Count == 0)
+                {
+                    continue;
+                }
+
+                var offers = new List<SellerOffer>();
+                var scrapedAtUtc = DateTime.MinValue;
+
+                foreach (var variant in variants)
+                {
+                    if (!marketDataByProductUrl.TryGetValue(variant.ProductUrl, out var marketData))
+                    {
+                        continue;
+                    }
+
+                    if (marketData.ScrapedAtUtc > scrapedAtUtc)
+                    {
+                        scrapedAtUtc = marketData.ScrapedAtUtc;
+                    }
+
+                    offers.AddRange(marketData.Offers.Select(offer => new SellerOffer
+                    {
+                        SellerName = offer.SellerName,
+                        Country = offer.Country,
+                        Price = offer.Price,
+                        AvailableQuantity = offer.AvailableQuantity,
+                        CardName = cardName,
+                        SetName = offer.SetName,
+                        ProductUrl = offer.ProductUrl
+                    }));
+                }
+
+                var representativeVariant = variants[0];
+                result.Add(new MarketCardData
+                {
+                    Target = new ScrapingTarget
+                    {
+                        RequestKey = BuildRequestKey(cardName),
+                        CardName = cardName,
+                        SetName = variants.Count == 1 ? representativeVariant.SetName : string.Empty,
+                        ProductUrl = representativeVariant.ProductUrl,
+                        DesiredQuantity = group.DesiredQuantity
+                    },
+                    ScrapedAtUtc = scrapedAtUtc,
+                    Offers = offers
+                });
+            }
+
+            return result;
+        }
+
+        private static string BuildRequestKey(string cardName)
+            => cardName.Trim();
 
         private PurgedScopeSnapshot BuildPurgedScopeSnapshot(
         IReadOnlyList<MarketCardData> allMarketData,
