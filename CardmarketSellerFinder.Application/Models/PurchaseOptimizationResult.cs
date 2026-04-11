@@ -12,4 +12,8 @@ public sealed class PurchaseOptimizationResult
 
     public IReadOnlySet<string> UncoveredCardKeys { get; init; }
         = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlyList<OptimizationPhaseProfile> ProfilePhases { get; init; } = [];
+
+    public OptimizationRunProfile? RunProfile { get; init; }
 }

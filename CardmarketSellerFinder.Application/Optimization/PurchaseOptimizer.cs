@@ -4,6 +4,8 @@ using CMBuyerStudio.Domain.Market;
 using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
 
+using System.Diagnostics;
+
 namespace CMBuyerStudio.Application.Optimization;
 
 public sealed class PurchaseOptimizer
@@ -22,6 +24,7 @@ public sealed class PurchaseOptimizer
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
+        var profilePhases = new List<OptimizationPhaseProfile>();
         var selectedSellerNames = new HashSet<string>(
             snapshot.PreselectedSellerNames,
             StringComparer.OrdinalIgnoreCase);
@@ -31,7 +34,7 @@ public sealed class PurchaseOptimizer
 
         if (snapshot.ScopedMarketData.Count == 0)
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var requiredByCard = snapshot.PurgedMarketData
@@ -43,33 +46,65 @@ public sealed class PurchaseOptimizer
 
         if (requiredByCard.Length == 0 || requiredByCard.All(quantity => quantity <= 0))
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var settings = ResolveRuntimeSettings(_options);
-        var canonicalSellers = BuildCanonicalSellers(
+        var canonicalBuildStopwatch = Stopwatch.StartNew();
+        var canonicalBuild = BuildCanonicalSellersWithMetrics(
             snapshot.PurgedMarketData,
             requiredByCard,
             snapshot.FixedCostBySellerName);
+        canonicalBuildStopwatch.Stop();
+        var canonicalSellers = canonicalBuild.Sellers;
+        profilePhases.Add(CreateCanonicalBuildPhase(
+            "Optimize.BuildCanonicalSellers",
+            canonicalBuildStopwatch.ElapsedMilliseconds,
+            canonicalBuild.Metrics));
 
         if (canonicalSellers.Count == 0)
         {
             AddUncoveredCardKeys(snapshot.PurgedMarketData, requiredByCard, knownUncoveredCardKeys);
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var activeRequiredByCard = requiredByCard.ToArray();
         if (activeRequiredByCard.All(quantity => quantity <= 0))
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
-        var candidatePoolBuilder = new CandidatePoolBuilder();
-        var candidateSellerNames = candidatePoolBuilder.BuildCandidateSellerNames(
+        var effectiveParallelism = ResolveParallelism();
+        var candidatePoolStopwatch = Stopwatch.StartNew();
+        var candidatePoolBuilder = new CandidatePoolBuilder(effectiveParallelism);
+        var candidatePoolResult = candidatePoolBuilder.BuildCandidateSellerNames(
             canonicalSellers,
+            snapshot.PurgedMarketData.Select(card => card.Target.CardName).ToArray(),
             activeRequiredByCard,
             snapshot.PreselectedSellerNames,
             settings);
+        candidatePoolStopwatch.Stop();
+        var candidateSellerNames = candidatePoolResult.CandidateSellerNames;
+        profilePhases.Add(new OptimizationPhaseProfile
+        {
+            Name = "Optimize.CandidatePool",
+            ElapsedMilliseconds = candidatePoolStopwatch.ElapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["canonicalSellers"] = canonicalSellers.Count,
+                ["candidateSellers"] = candidateSellerNames.Count,
+                ["rareProviders"] = candidatePoolResult.RareProviderCount,
+                ["feasibilityRescues"] = candidatePoolResult.FeasibilityRescueCount,
+                ["coveragePromotions"] = candidatePoolResult.CoveragePromotionCount,
+                ["topHitPromotions"] = candidatePoolResult.TopHitPromotionCount
+            },
+            Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["candidatePoolMin"] = settings.CandidatePoolMin.ToString(),
+                ["candidatePoolMax"] = settings.CandidatePoolMax.ToString()
+            },
+            Details = candidatePoolResult.CardDetails
+        });
 
         var reducedSellers = canonicalSellers
             .Where(seller => candidateSellerNames.Contains(seller.SellerName))
@@ -78,7 +113,7 @@ public sealed class PurchaseOptimizer
         if (reducedSellers.Count == 0)
         {
             AddUncoveredCardKeys(snapshot.PurgedMarketData, activeRequiredByCard, knownUncoveredCardKeys);
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var cardCount = activeRequiredByCard.Length;
@@ -87,19 +122,57 @@ public sealed class PurchaseOptimizer
             activeRequiredByCard,
             cardCount).ToList();
 
+        var beamStopwatch = Stopwatch.StartNew();
         var beamResult = new BeamSearchSolver(
             orderedReducedSellers,
             activeRequiredByCard,
             settings)
             .Run();
+        beamStopwatch.Stop();
+        profilePhases.Add(new OptimizationPhaseProfile
+        {
+            Name = "Optimize.BeamSearch",
+            ElapsedMilliseconds = beamStopwatch.ElapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["candidateSellers"] = orderedReducedSellers.Count,
+                ["beamSelectionSize"] = beamResult.SelectedOrderedSellerIndices.Count,
+                ["isFullCoverage"] = beamResult.IsFullCoverage ? 1 : 0
+            },
+            Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["beamWidth"] = settings.BeamWidth.ToString(),
+                ["beamAlpha"] = settings.BeamAlpha.ToString(),
+                ["beamBeta"] = settings.BeamBeta.ToString()
+            }
+        });
 
+        var exactStopwatch = Stopwatch.StartNew();
         var reducedExactResult = new ReducedExactSolver(
             orderedReducedSellers,
             activeRequiredByCard,
             cardCount,
-            ResolveParallelism(),
+            effectiveParallelism,
             settings)
             .Solve(beamResult);
+        exactStopwatch.Stop();
+        profilePhases.Add(new OptimizationPhaseProfile
+        {
+            Name = "Optimize.ReducedExact",
+            ElapsedMilliseconds = exactStopwatch.ElapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["candidateSellers"] = orderedReducedSellers.Count,
+                ["exactSelectionSize"] = reducedExactResult.SelectedOrderedSellerIndices.Count,
+                ["isFullCoverage"] = reducedExactResult.IsFullCoverage ? 1 : 0,
+                ["parallelism"] = effectiveParallelism
+            },
+            Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["exactMaxK"] = settings.ExactMaxK.ToString(),
+                ["solverTimeBudgetMinutes"] = settings.SolverTimeBudgetMinutes.ToString()
+            }
+        });
 
         HashSet<string> activeSelection;
         if (reducedExactResult.IsFullCoverage || beamResult.IsFullCoverage)
@@ -119,11 +192,23 @@ public sealed class PurchaseOptimizer
                 && activeSelection.Count > 0
                 && activeSelection.Count <= settings.ExactMaxK)
             {
+                var refineStopwatch = Stopwatch.StartNew();
                 activeSelection = RefineSelectionForFixedSellerCountOnCanonical(
                     orderedReducedSellers,
                     activeRequiredByCard,
                     activeSelection,
-                    ResolveParallelism());
+                    effectiveParallelism);
+                refineStopwatch.Stop();
+                profilePhases.Add(new OptimizationPhaseProfile
+                {
+                    Name = "Optimize.FinalRefine",
+                    ElapsedMilliseconds = refineStopwatch.ElapsedMilliseconds,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["selectedSellers"] = activeSelection.Count,
+                        ["parallelism"] = effectiveParallelism
+                    }
+                });
             }
         }
         else
@@ -137,19 +222,34 @@ public sealed class PurchaseOptimizer
 
         selectedSellerNames.UnionWith(activeSelection);
 
-        return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys);
+        return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
     }
 
     private static PurchaseOptimizationResult BuildResult(
         IReadOnlyList<MarketCardData> scopedMarketData,
         IReadOnlyCollection<string> selectedSellerNames,
-        IReadOnlySet<string> knownUncoveredCardKeys)
+        IReadOnlySet<string> knownUncoveredCardKeys,
+        IReadOnlyList<OptimizationPhaseProfile>? existingPhases = null)
     {
+        var profilePhases = existingPhases?.ToList() ?? [];
+        var assignmentsStopwatch = Stopwatch.StartNew();
         var assignments = BuildAssignments(
             scopedMarketData,
             selectedSellerNames,
             out var uncoveredCards,
             out var totalCardsCost);
+        assignmentsStopwatch.Stop();
+        profilePhases.Add(new OptimizationPhaseProfile
+        {
+            Name = "Optimize.BuildAssignments",
+            ElapsedMilliseconds = assignmentsStopwatch.ElapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["assignments"] = assignments.Count,
+                ["selectedSellers"] = selectedSellerNames.Count,
+                ["uncoveredCards"] = uncoveredCards.Count
+            }
+        });
 
         var uncoveredCardKeys = uncoveredCards
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -165,7 +265,8 @@ public sealed class PurchaseOptimizer
             Assignments = assignments,
             SellerCount = selectedSellers.Count,
             CardsTotalPrice = totalCardsCost,
-            UncoveredCardKeys = uncoveredCardKeys
+            UncoveredCardKeys = uncoveredCardKeys,
+            ProfilePhases = profilePhases
         };
     }
 
@@ -222,135 +323,43 @@ public sealed class PurchaseOptimizer
     private static int ResolveParallelism()
         => Math.Max(1, Environment.ProcessorCount / 2);
 
-    private static List<CanonicalSeller> BuildCanonicalSellers(
+    private static OptimizationPhaseProfile CreateCanonicalBuildPhase(
+        string name,
+        long elapsedMilliseconds,
+        CanonicalSellerBuildMetrics metrics)
+    {
+        return new OptimizationPhaseProfile
+        {
+            Name = name,
+            ElapsedMilliseconds = elapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["cardCount"] = metrics.CardCount,
+                ["offerCount"] = metrics.OfferCount,
+                ["uniqueSellerCount"] = metrics.UniqueSellerCount,
+                ["activeSellerCount"] = metrics.ActiveSellerCount,
+                ["activeProfileCount"] = metrics.ActiveProfileCount
+            }
+        };
+    }
+
+    private static CanonicalSellerBuildResult<CanonicalSeller> BuildCanonicalSellersWithMetrics(
         IReadOnlyList<MarketCardData> marketData,
         int[] requiredByCard,
         IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
     {
-        var sellerIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var accumulators = new List<SellerAccumulator>();
-        var cardCount = marketData.Count;
-
-        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
-        {
-            foreach (var offer in marketData[cardIndex].Offers)
-            {
-                if (!sellerIndexByName.TryGetValue(offer.SellerName, out var sellerIndex))
-                {
-                    sellerIndex = accumulators.Count;
-                    sellerIndexByName[offer.SellerName] = sellerIndex;
-                    accumulators.Add(new SellerAccumulator(
-                        sellerIndex,
-                        offer.SellerName,
-                        cardCount));
-                }
-
-                accumulators[sellerIndex].AddOffer(cardIndex, offer);
-            }
-        }
-
-        var sellers = new List<CanonicalSeller>(accumulators.Count);
-
-        foreach (var accumulator in accumulators)
-        {
-            var profiles = new SellerCardProfile?[cardCount];
-            var qtyByCard = new int[cardCount];
-            var activeCards = new List<int>(cardCount);
-
-            for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
-            {
-                var requiredQuantity = requiredByCard[cardIndex];
-                var profile = BuildSellerCardProfile(
-                    accumulator.GetOffers(cardIndex),
-                    requiredQuantity);
-
-                if (profile is null || profile.QtyUsable <= 0)
-                {
-                    continue;
-                }
-
-                profiles[cardIndex] = profile;
-                qtyByCard[cardIndex] = profile.QtyUsable;
-                activeCards.Add(cardIndex);
-            }
-
-            sellers.Add(new CanonicalSeller(
-                accumulator.OriginalOrder,
-                accumulator.SellerName,
-                ResolveSellerFixedCost(accumulator.SellerName, fixedCostBySellerName),
-                profiles,
+        return CanonicalSellerBuildHelper.BuildCanonicalSellers(
+            marketData,
+            requiredByCard,
+            fixedCostBySellerName,
+            (originalOrder, sellerName, fixedCost, profileData, qtyByCard, activeCards) => new CanonicalSeller(
+                originalOrder,
+                sellerName,
+                fixedCost,
+                profileData.Select(profile => profile is null ? null : new SellerCardProfile(profile.PrefixCosts)).ToArray(),
                 qtyByCard,
-                [.. activeCards]));
-        }
-
-        return sellers;
-    }
-
-    private static decimal ResolveSellerFixedCost(
-        string sellerName,
-        IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
-    {
-        if (!fixedCostBySellerName.TryGetValue(sellerName, out var value) || value < 0m)
-        {
-            return 0m;
-        }
-
-        return value;
-    }
-
-    private static SellerCardProfile? BuildSellerCardProfile(
-        IReadOnlyList<SellerOffer>? offers,
-        int requiredQuantity)
-    {
-        if (requiredQuantity <= 0 || offers is null || offers.Count == 0)
-        {
-            return null;
-        }
-
-        var orderedOffers = offers
-            .Where(offer => offer.AvailableQuantity > 0)
-            .OrderBy(offer => offer.Price)
-            .ThenByDescending(offer => offer.AvailableQuantity)
-            .ThenBy(offer => offer.ProductUrl, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(offer => offer.CardName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(offer => offer.SetName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (orderedOffers.Count == 0)
-        {
-            return null;
-        }
-
-        var totalStock = orderedOffers.Sum(offer => offer.AvailableQuantity);
-        var qtyUsable = Math.Min(requiredQuantity, totalStock);
-
-        if (qtyUsable <= 0)
-        {
-            return null;
-        }
-
-        var prefixCosts = new decimal[qtyUsable + 1];
-        var covered = 0;
-
-        foreach (var offer in orderedOffers)
-        {
-            if (covered >= qtyUsable)
-            {
-                break;
-            }
-
-            var take = Math.Min(offer.AvailableQuantity, qtyUsable - covered);
-
-            for (var unit = 0; unit < take; unit++)
-            {
-                covered++;
-                prefixCosts[covered] = AddCost(prefixCosts[covered - 1], offer.Price);
-            }
-        }
-
-        return covered == qtyUsable
-            ? new SellerCardProfile(prefixCosts)
-            : null;
+                activeCards),
+            ResolveParallelism());
     }
 
     private static IReadOnlyList<CanonicalSeller> OrderSellersForSearch(
@@ -1613,8 +1622,16 @@ public sealed class PurchaseOptimizer
 
     private sealed class CandidatePoolBuilder
     {
-        public HashSet<string> BuildCandidateSellerNames(
+        private readonly int _effectiveParallelism;
+
+        public CandidatePoolBuilder(int effectiveParallelism)
+        {
+            _effectiveParallelism = Math.Max(1, effectiveParallelism);
+        }
+
+        public CandidatePoolBuildResult BuildCandidateSellerNames(
             IReadOnlyList<CanonicalSeller> sellers,
+            IReadOnlyList<string> cardNames,
             int[] requiredByCard,
             IReadOnlyCollection<string> alwaysKeepSellerNames,
             RuntimeSettings settings)
@@ -1625,19 +1642,26 @@ public sealed class PurchaseOptimizer
 
             if (sellers.Count == 0)
             {
-                return candidateSellerNames;
+                return new CandidatePoolBuildResult(
+                    candidateSellerNames,
+                    [],
+                    RareProviderCount: 0,
+                    FeasibilityRescueCount: 0,
+                    CoveragePromotionCount: 0,
+                    TopHitPromotionCount: 0);
             }
 
             var topHitsBySeller = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var rareProviderSellerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var sellerByName = sellers.ToDictionary(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase);
+            var cardEvaluations = new CandidateCardEvaluation[requiredByCard.Length];
 
-            for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
+            Action<int> evaluateCard = cardIndex =>
             {
                 var requiredQty = requiredByCard[cardIndex];
                 if (requiredQty <= 0)
                 {
-                    continue;
+                    cardEvaluations[cardIndex] = CandidateCardEvaluation.Empty(cardNames[cardIndex]);
+                    return;
                 }
 
                 var providers = sellers
@@ -1653,48 +1677,131 @@ public sealed class PurchaseOptimizer
 
                 if (providers.Count == 0)
                 {
-                    continue;
+                    cardEvaluations[cardIndex] = CandidateCardEvaluation.Empty(cardNames[cardIndex]);
+                    return;
                 }
 
-                if (providers.Count <= 2)
-                {
-                    foreach (var provider in providers)
-                    {
-                        candidateSellerNames.Add(provider.Seller.SellerName);
-                        rareProviderSellerNames.Add(provider.Seller.SellerName);
-                    }
-                }
+                var adaptiveCheapestCap = ResolveAdaptiveTopPerCard(
+                    requiredQty,
+                    providers.Count,
+                    settings.CandidateTopCheapestPerCard);
+                var adaptiveEffectiveCap = ResolveAdaptiveTopPerCard(
+                    requiredQty,
+                    providers.Count,
+                    settings.CandidateTopEffectivePerCard);
 
-                foreach (var provider in providers
+                var cheapestProviders = providers
                     .OrderBy(provider => provider.UnitPrice)
                     .ThenBy(provider => provider.Seller.SellerName, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(provider => provider.Seller.OriginalOrder)
-                    .Take(settings.CandidateTopCheapestPerCard))
-                {
-                    candidateSellerNames.Add(provider.Seller.SellerName);
-                    topHitsBySeller[provider.Seller.SellerName] = topHitsBySeller.GetValueOrDefault(provider.Seller.SellerName) + 1;
-                }
+                    .Take(adaptiveCheapestCap)
+                    .Select(provider => provider.Seller.SellerName)
+                    .ToArray();
 
-                foreach (var provider in providers
+                var effectiveProviders = providers
                     .OrderBy(provider => provider.EffectiveCost)
                     .ThenBy(provider => provider.UnitPrice)
                     .ThenBy(provider => provider.Seller.SellerName, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(provider => provider.Seller.OriginalOrder)
-                    .Take(settings.CandidateTopEffectivePerCard))
+                    .Take(adaptiveEffectiveCap)
+                    .Select(provider => provider.Seller.SellerName)
+                    .ToArray();
+
+                var rareProviders = providers.Count <= 2
+                    ? providers.Select(provider => provider.Seller.SellerName).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                    : [];
+
+                cardEvaluations[cardIndex] = new CandidateCardEvaluation(
+                    cardNames[cardIndex],
+                    providers.Count,
+                    adaptiveCheapestCap,
+                    adaptiveEffectiveCap,
+                    cheapestProviders,
+                    effectiveProviders,
+                    rareProviders);
+            };
+
+            if (_effectiveParallelism <= 1 || requiredByCard.Length <= 1)
+            {
+                for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
                 {
-                    candidateSellerNames.Add(provider.Seller.SellerName);
-                    topHitsBySeller[provider.Seller.SellerName] = topHitsBySeller.GetValueOrDefault(provider.Seller.SellerName) + 1;
+                    evaluateCard(cardIndex);
                 }
             }
+            else
+            {
+                Parallel.For(
+                    0,
+                    requiredByCard.Length,
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = _effectiveParallelism
+                    },
+                    evaluateCard);
+            }
+
+            var cardDetails = new List<OptimizationProfileDetail>(cardEvaluations.Length);
+            foreach (var evaluation in cardEvaluations.Where(evaluation => evaluation is not null))
+            {
+                foreach (var sellerName in evaluation!.RareProviders)
+                {
+                    candidateSellerNames.Add(sellerName);
+                    rareProviderSellerNames.Add(sellerName);
+                }
+
+                foreach (var sellerName in evaluation.CheapestProviders)
+                {
+                    candidateSellerNames.Add(sellerName);
+                    topHitsBySeller[sellerName] = topHitsBySeller.GetValueOrDefault(sellerName) + 1;
+                }
+
+                foreach (var sellerName in evaluation.EffectiveProviders)
+                {
+                    candidateSellerNames.Add(sellerName);
+                    topHitsBySeller[sellerName] = topHitsBySeller.GetValueOrDefault(sellerName) + 1;
+                }
+
+                cardDetails.Add(new OptimizationProfileDetail
+                {
+                    Name = evaluation.CardName,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["providers"] = evaluation.ProviderCount,
+                        ["adaptiveCheapestCap"] = evaluation.AdaptiveCheapestCap,
+                        ["adaptiveEffectiveCap"] = evaluation.AdaptiveEffectiveCap,
+                        ["rareProviders"] = evaluation.RareProviders.Length,
+                        ["cheapestSelected"] = evaluation.CheapestProviders.Length,
+                        ["effectiveSelected"] = evaluation.EffectiveProviders.Length
+                    }
+                });
+            }
+
+            var coveragePromotionCount = 0;
+            var topHitPromotionCount = 0;
 
             foreach (var seller in sellers)
             {
                 var coveredCards = CountCoveredCards(seller, requiredByCard);
+                var coverageUnits = CountCoveredUnits(seller, requiredByCard);
                 var topHits = topHitsBySeller.GetValueOrDefault(seller.SellerName);
 
-                if (coveredCards >= 2 || topHits >= 2)
+                if (topHits >= 2)
                 {
-                    candidateSellerNames.Add(seller.SellerName);
+                    if (candidateSellerNames.Add(seller.SellerName))
+                    {
+                        topHitPromotionCount++;
+                    }
+                    continue;
+                }
+
+                if (!rareProviderSellerNames.Contains(seller.SellerName)
+                    && coveredCards >= 2
+                    && coverageUnits >= Math.Max(3, coveredCards + 1))
+                {
+                    if (candidateSellerNames.Add(seller.SellerName))
+                    {
+                        coveragePromotionCount++;
+                    }
                 }
             }
 
@@ -1724,13 +1831,12 @@ public sealed class PurchaseOptimizer
                 rareProviderSellerNames,
                 ranked);
 
-            EnsureFeasibleCoverage(
+            var feasibilityRescueCount = EnsureFeasibleCoverage(
                 candidateSellerNames,
                 sellers,
                 requiredByCard,
                 settings.CandidatePoolMax,
-                ranked,
-                sellerByName);
+                ranked);
 
             candidateSellerNames = TrimToCapWithFeasibility(
                 candidateSellerNames,
@@ -1741,7 +1847,13 @@ public sealed class PurchaseOptimizer
                 rareProviderSellerNames,
                 ranked);
 
-            return candidateSellerNames;
+            return new CandidatePoolBuildResult(
+                candidateSellerNames,
+                cardDetails,
+                RareProviderCount: rareProviderSellerNames.Count,
+                FeasibilityRescueCount: feasibilityRescueCount,
+                CoveragePromotionCount: coveragePromotionCount,
+                TopHitPromotionCount: topHitPromotionCount);
         }
 
         private static List<RankedSeller> RankSellers(
@@ -1873,14 +1985,15 @@ public sealed class PurchaseOptimizer
             return candidateSellerNames;
         }
 
-        private static void EnsureFeasibleCoverage(
+        private static int EnsureFeasibleCoverage(
             HashSet<string> candidateSellerNames,
             IReadOnlyList<CanonicalSeller> sellers,
             int[] requiredByCard,
             int maxCount,
-            IReadOnlyList<RankedSeller> ranked,
-            IReadOnlyDictionary<string, CanonicalSeller> sellerByName)
+            IReadOnlyList<RankedSeller> ranked)
         {
+            var rescueCount = 0;
+
             for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
             {
                 var requiredQty = requiredByCard[cardIndex];
@@ -1911,7 +2024,10 @@ public sealed class PurchaseOptimizer
                         break;
                     }
 
-                    candidateSellerNames.Add(missingProvider.Seller.SellerName);
+                    if (candidateSellerNames.Add(missingProvider.Seller.SellerName))
+                    {
+                        rescueCount++;
+                    }
                 }
             }
 
@@ -1930,7 +2046,7 @@ public sealed class PurchaseOptimizer
 
             if (candidateSellerNames.Count <= maxCount)
             {
-                return;
+                return rescueCount;
             }
 
             var rankedByWeakness = ranked
@@ -1950,18 +2066,14 @@ public sealed class PurchaseOptimizer
                     break;
                 }
 
-                if (!sellerByName.TryGetValue(rankedSeller.SellerName, out var canonicalSeller))
-                {
-                    candidateSellerNames.Remove(rankedSeller.SellerName);
-                    continue;
-                }
-
                 candidateSellerNames.Remove(rankedSeller.SellerName);
                 if (!HasFeasibleCoverage(candidateSellerNames, sellers, requiredByCard))
                 {
-                    candidateSellerNames.Add(canonicalSeller.SellerName);
+                    candidateSellerNames.Add(rankedSeller.SellerName);
                 }
             }
+
+            return rescueCount;
         }
 
         private static bool HasFeasibleCoverage(
@@ -2022,11 +2134,58 @@ public sealed class PurchaseOptimizer
             return coveredCards;
         }
 
+        private static int CountCoveredUnits(CanonicalSeller seller, int[] requiredByCard)
+        {
+            var coveredUnits = 0;
+
+            foreach (var cardIndex in seller.ActiveCards)
+            {
+                if (requiredByCard[cardIndex] <= 0)
+                {
+                    continue;
+                }
+
+                coveredUnits += Math.Min(requiredByCard[cardIndex], seller.QtyByCard[cardIndex]);
+            }
+
+            return coveredUnits;
+        }
+
+        private static int ResolveAdaptiveTopPerCard(
+            int requiredQuantity,
+            int providerCount,
+            int configuredCap)
+        {
+            var adaptiveCap = Math.Max(2, (requiredQuantity * 2) + 1);
+            return Math.Min(providerCount, Math.Min(configuredCap, adaptiveCap));
+        }
+
         private sealed record CardProvider(
             CanonicalSeller Seller,
             decimal UnitPrice,
             decimal EffectiveCost,
             int UsefulUnits);
+
+        private sealed record CandidateCardEvaluation(
+            string CardName,
+            int ProviderCount,
+            int AdaptiveCheapestCap,
+            int AdaptiveEffectiveCap,
+            string[] CheapestProviders,
+            string[] EffectiveProviders,
+            string[] RareProviders)
+        {
+            public static CandidateCardEvaluation Empty(string cardName)
+                => new(cardName, 0, 0, 0, [], [], []);
+        }
+
+        public sealed record CandidatePoolBuildResult(
+            HashSet<string> CandidateSellerNames,
+            IReadOnlyList<OptimizationProfileDetail> CardDetails,
+            int RareProviderCount,
+            int FeasibilityRescueCount,
+            int CoveragePromotionCount,
+            int TopHitPromotionCount);
 
         private sealed record RankedSeller(
             string SellerName,
@@ -3024,28 +3183,4 @@ public sealed class PurchaseOptimizer
         public int ActiveCardCount => ActiveCards.Length;
     }
 
-    private sealed class SellerAccumulator
-    {
-        private readonly List<SellerOffer>?[] _offersByCard;
-
-        public SellerAccumulator(int originalOrder, string sellerName, int cardCount)
-        {
-            OriginalOrder = originalOrder;
-            SellerName = sellerName;
-            _offersByCard = new List<SellerOffer>?[cardCount];
-        }
-
-        public int OriginalOrder { get; }
-
-        public string SellerName { get; }
-
-        public void AddOffer(int cardIndex, SellerOffer offer)
-        {
-            _offersByCard[cardIndex] ??= [];
-            _offersByCard[cardIndex]!.Add(offer);
-        }
-
-        public IReadOnlyList<SellerOffer>? GetOffers(int cardIndex)
-            => _offersByCard[cardIndex];
-    }
 }

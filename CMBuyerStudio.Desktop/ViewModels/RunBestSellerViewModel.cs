@@ -145,6 +145,14 @@ public sealed class RunBestSellerViewModel : ViewModelBase
                 SetStep($"{calc.Scope} Calculation", StepStatus.Running);
                 break;
 
+            case CalculationProfileSnapshotEvent profileSnapshot:
+                DetailText = profileSnapshot.Summary;
+                break;
+
+            case CalculationProfileCompletedEvent profileCompleted:
+                DetailText = profileCompleted.Summary;
+                break;
+
             case CalculationFinishedEvent calc:
                 SetStep($"{calc.Scope} Calculation", StepStatus.Completed);
                 break;

@@ -441,6 +441,60 @@ public sealed class PurchaseOptimizerTests
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(10));
     }
 
+    [Fact]
+    public void Optimize_EmitsProfilePhasesAndRemainsDeterministicAcrossRuns()
+    {
+        var sut = CreateSut(new PurchaseOptimizerOptions
+        {
+            CandidatePoolMin = 6,
+            CandidatePoolMax = 10,
+            ExactMaxK = 5,
+            BeamWidth = 250
+        });
+        var cardA = Card(
+            "p1",
+            desiredQuantity: 2,
+            requestKey: "Lightning Bolt",
+            Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p1", price: 1.1m, availableQuantity: 1),
+            Offer("SellerC", "p1", price: 4m, availableQuantity: 2));
+        var cardB = Card(
+            "p2",
+            desiredQuantity: 1,
+            requestKey: "Chain Lightning",
+            Offer("SellerA", "p2", price: 1.2m, availableQuantity: 1),
+            Offer("SellerD", "p2", price: 1.3m, availableQuantity: 1));
+        var snapshot = Snapshot(
+            scopedMarketData: [cardA, cardB],
+            purgedMarketData: [cardA, cardB],
+            remainingRequiredByCardKey: Remaining("Lightning Bolt", 2, "Chain Lightning", 1),
+            fixedCostBySellerName: new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["SellerA"] = 0.5m,
+                ["SellerB"] = 0.5m,
+                ["SellerC"] = 0.5m,
+                ["SellerD"] = 0.5m
+            });
+
+        var baseline = sut.Optimize(snapshot);
+
+        Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.BuildCanonicalSellers");
+        Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.CandidatePool");
+        Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.BuildAssignments");
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var rerun = sut.Optimize(snapshot);
+
+            Assert.Equal(baseline.SelectedSellerNames, rerun.SelectedSellerNames);
+            Assert.Equal(baseline.UncoveredCardKeys.OrderBy(x => x), rerun.UncoveredCardKeys.OrderBy(x => x));
+            Assert.Equal(baseline.CardsTotalPrice, rerun.CardsTotalPrice);
+            Assert.Equal(
+                baseline.Assignments.Select(x => (x.SellerName, x.ProductUrl, x.Quantity)),
+                rerun.Assignments.Select(x => (x.SellerName, x.ProductUrl, x.Quantity)));
+        }
+    }
+
     private static PurchaseOptimizer CreateSut(PurchaseOptimizerOptions? options = null)
         => new(Options.Create(options ?? new PurchaseOptimizerOptions()));
 

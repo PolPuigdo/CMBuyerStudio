@@ -1,6 +1,10 @@
 ﻿using CMBuyerStudio.Application.Models;
 using CMBuyerStudio.Domain.Market;
 
+using System.Diagnostics;
+
+using CMBuyerStudio.Application.Optimization;
+
 namespace CMBuyerStudio.Application.Services;
 
 public sealed class OfferPurger
@@ -23,11 +27,14 @@ public sealed class OfferPurger
                 RemainingRequiredByCardKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                 PreselectedSellerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 UncoveredCardKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                Stats = new OfferPurgeStats()
+                Stats = new OfferPurgeStats(),
+                ProfilePhases = []
             };
         }
 
+        var totalStopwatch = Stopwatch.StartNew();
         var pipeline = RunPurgePipeline(marketData, fixedCostBySellerName);
+        totalStopwatch.Stop();
 
         var purgedMarketData = RebuildPurgedMarketData(
             marketData,
@@ -57,7 +64,23 @@ public sealed class OfferPurger
                 RemovedUseless = pipeline.TotalRemovedUseless,
                 RemovedSingleCardDominated = pipeline.TotalRemovedSingleCardDominated,
                 RemovedGlobalDominated = pipeline.TotalRemovedGlobalDominated
-            }
+            },
+            ProfilePhases =
+            [
+                .. pipeline.ProfilePhases,
+                new OptimizationPhaseProfile
+                {
+                    Name = "Purge.Total",
+                    ElapsedMilliseconds = totalStopwatch.ElapsedMilliseconds,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["initialSellerCount"] = pipeline.InitialSellerCount,
+                        ["remainingSellerCount"] = pipeline.RemainingSellers.Count,
+                        ["rounds"] = pipeline.Rounds,
+                        ["uncoveredCards"] = pipeline.UncoveredCardIndices.Count
+                    }
+                }
+            ]
         };
     }
 
@@ -66,136 +89,23 @@ public sealed class OfferPurger
             ? target.ProductUrl
             : target.RequestKey;
 
-    private static decimal ResolveSellerFixedCost(
-    string sellerName,
-    IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
-    {
-        if (!fixedCostBySellerName.TryGetValue(sellerName, out var value) || value < 0m)
-        {
-            return 0m;
-        }
-
-        return value;
-    }
-
-    private static SellerCardProfile? BuildSellerCardProfile(
-    IReadOnlyList<SellerOffer>? offers,
-    int requiredQuantity)
-    {
-        if (requiredQuantity <= 0 || offers is null || offers.Count == 0)
-        {
-            return null;
-        }
-
-        var orderedOffers = offers
-            .Where(offer => offer.AvailableQuantity > 0)
-            .OrderBy(offer => offer.Price)
-            .ThenByDescending(offer => offer.AvailableQuantity)
-            .ThenBy(offer => offer.ProductUrl, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(offer => offer.CardName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(offer => offer.SetName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (orderedOffers.Count == 0)
-        {
-            return null;
-        }
-
-        var totalStock = orderedOffers.Sum(offer => offer.AvailableQuantity);
-        var qtyUsable = Math.Min(requiredQuantity, totalStock);
-
-        if (qtyUsable <= 0)
-        {
-            return null;
-        }
-
-        var prefixCosts = new decimal[qtyUsable + 1];
-        var covered = 0;
-
-        foreach (var offer in orderedOffers)
-        {
-            if (covered >= qtyUsable)
-            {
-                break;
-            }
-
-            var take = Math.Min(offer.AvailableQuantity, qtyUsable - covered);
-
-            for (var unit = 0; unit < take; unit++)
-            {
-                covered++;
-                prefixCosts[covered] = prefixCosts[covered - 1] + offer.Price;
-            }
-        }
-
-        return covered == qtyUsable
-            ? new SellerCardProfile(prefixCosts)
-            : null;
-    }
-
-    private static List<CanonicalSeller> BuildCanonicalSellers(
+    private static CanonicalSellerBuildResult<CanonicalSeller> BuildCanonicalSellersWithMetrics(
     IReadOnlyList<MarketCardData> marketData,
     int[] requiredByCard,
     IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
     {
-        var sellerIndexByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var accumulators = new List<SellerAccumulator>();
-        var cardCount = marketData.Count;
-
-        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
-        {
-            foreach (var offer in marketData[cardIndex].Offers)
-            {
-                if (!sellerIndexByName.TryGetValue(offer.SellerName, out var sellerIndex))
-                {
-                    sellerIndex = accumulators.Count;
-                    sellerIndexByName[offer.SellerName] = sellerIndex;
-                    accumulators.Add(new SellerAccumulator(
-                        sellerIndex,
-                        offer.SellerName,
-                        cardCount));
-                }
-
-                accumulators[sellerIndex].AddOffer(cardIndex, offer);
-            }
-        }
-
-        var sellers = new List<CanonicalSeller>(accumulators.Count);
-
-        foreach (var accumulator in accumulators)
-        {
-            var profiles = new SellerCardProfile?[cardCount];
-            var qtyByCard = new int[cardCount];
-            var activeCards = new List<int>(cardCount);
-
-            for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
-            {
-                var requiredQuantity = requiredByCard[cardIndex];
-
-                var profile = BuildSellerCardProfile(
-                    accumulator.GetOffers(cardIndex),
-                    requiredQuantity);
-
-                if (profile is null || profile.QtyUsable <= 0)
-                {
-                    continue;
-                }
-
-                profiles[cardIndex] = profile;
-                qtyByCard[cardIndex] = profile.QtyUsable;
-                activeCards.Add(cardIndex);
-            }
-
-            sellers.Add(new CanonicalSeller(
-                accumulator.OriginalOrder,
-                accumulator.SellerName,
-                ResolveSellerFixedCost(accumulator.SellerName, fixedCostBySellerName),
-                profiles,
+        return CanonicalSellerBuildHelper.BuildCanonicalSellers(
+            marketData,
+            requiredByCard,
+            fixedCostBySellerName,
+            (originalOrder, sellerName, fixedCost, profileData, qtyByCard, activeCards) => new CanonicalSeller(
+                originalOrder,
+                sellerName,
+                fixedCost,
+                profileData.Select(profile => profile is null ? null : new SellerCardProfile(profile.PrefixCosts)).ToArray(),
                 qtyByCard,
-                [.. activeCards]));
-        }
-
-        return sellers;
+                activeCards),
+            ResolveParallelism());
     }
 
     private static List<int> FindImpossibleCardIndices(
@@ -653,6 +563,7 @@ public sealed class OfferPurger
     IReadOnlyList<MarketCardData> marketData,
     IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
     {
+        var profilePhases = new List<OptimizationPhaseProfile>();
         var requiredByCard = marketData
             .Select(x => Math.Max(0, x.Target.DesiredQuantity))
             .ToArray();
@@ -660,10 +571,17 @@ public sealed class OfferPurger
         var preselectedSellerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var uncoveredCardIndices = new HashSet<int>();
 
-        IReadOnlyList<CanonicalSeller> currentSellers = BuildCanonicalSellers(
+        var initialBuildStopwatch = Stopwatch.StartNew();
+        var initialBuild = BuildCanonicalSellersWithMetrics(
             marketData,
             requiredByCard,
             fixedCostBySellerName);
+        initialBuildStopwatch.Stop();
+        IReadOnlyList<CanonicalSeller> currentSellers = initialBuild.Sellers;
+        profilePhases.Add(CreateCanonicalBuildPhase(
+            "Purge.BuildCanonicalSellers.Initial",
+            initialBuildStopwatch.ElapsedMilliseconds,
+            initialBuild.Metrics));
 
         foreach (var impossibleCardIndex in FindImpossibleCardIndices(currentSellers, requiredByCard))
         {
@@ -673,10 +591,17 @@ public sealed class OfferPurger
 
         if (uncoveredCardIndices.Count > 0)
         {
-            currentSellers = BuildCanonicalSellers(
+            var rebuildStopwatch = Stopwatch.StartNew();
+            var rebuilt = BuildCanonicalSellersWithMetrics(
                 marketData,
                 requiredByCard,
                 fixedCostBySellerName);
+            rebuildStopwatch.Stop();
+            currentSellers = rebuilt.Sellers;
+            profilePhases.Add(CreateCanonicalBuildPhase(
+                "Purge.BuildCanonicalSellers.PostImpossible",
+                rebuildStopwatch.ElapsedMilliseconds,
+                rebuilt.Metrics));
         }
 
         var initialSellerCount = currentSellers.Count;
@@ -693,10 +618,25 @@ public sealed class OfferPurger
             var sellersBefore = currentSellers.Count;
             var cardsBefore = CountActiveCards(requiredByCard);
 
+            var preprocessStopwatch = Stopwatch.StartNew();
             var preprocess = PreprocessSellersExact(
                 currentSellers,
                 marketData.Count,
                 requiredByCard);
+            preprocessStopwatch.Stop();
+            profilePhases.Add(new OptimizationPhaseProfile
+            {
+                Name = $"Purge.Preprocess.Round{round}",
+                ElapsedMilliseconds = preprocessStopwatch.ElapsedMilliseconds,
+                Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["inputSellers"] = sellersBefore,
+                    ["remainingSellers"] = preprocess.Sellers.Count,
+                    ["removedUseless"] = preprocess.RemovedUseless,
+                    ["removedSingleCardDominated"] = preprocess.RemovedSingleCardDominated,
+                    ["removedGlobalDominated"] = preprocess.RemovedGlobalDominated
+                }
+            });
 
             currentSellers = preprocess.Sellers;
 
@@ -704,7 +644,19 @@ public sealed class OfferPurger
             totalRemovedSingleCardDominated += preprocess.RemovedSingleCardDominated;
             totalRemovedGlobalDominated += preprocess.RemovedGlobalDominated;
 
+            var isolatedStopwatch = Stopwatch.StartNew();
             var isolatedResult = SolveIsolatedSingleCardCards(currentSellers, requiredByCard);
+            isolatedStopwatch.Stop();
+            profilePhases.Add(new OptimizationPhaseProfile
+            {
+                Name = $"Purge.Isolated.Round{round}",
+                ElapsedMilliseconds = isolatedStopwatch.ElapsedMilliseconds,
+                Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["solutions"] = isolatedResult.Solutions.Count,
+                    ["impossibleCards"] = isolatedResult.ImpossibleCardIndices.Count
+                }
+            });
 
             foreach (var uncoveredCardIndex in isolatedResult.ImpossibleCardIndices)
             {
@@ -728,15 +680,36 @@ public sealed class OfferPurger
                     isolatedSellerNames,
                     requiredByCard);
 
-                currentSellers = BuildCanonicalSellers(
+                var postIsolatedBuildStopwatch = Stopwatch.StartNew();
+                var postIsolatedBuild = BuildCanonicalSellersWithMetrics(
                     marketData,
                     requiredByCard,
                     fixedCostBySellerName);
+                postIsolatedBuildStopwatch.Stop();
+                currentSellers = postIsolatedBuild.Sellers;
+                profilePhases.Add(CreateCanonicalBuildPhase(
+                    $"Purge.BuildCanonicalSellers.PostIsolated.Round{round}",
+                    postIsolatedBuildStopwatch.ElapsedMilliseconds,
+                    postIsolatedBuild.Metrics));
 
+                var postIsolatedPreprocessStopwatch = Stopwatch.StartNew();
                 var postIsolatedPreprocess = PreprocessSellersExact(
                     currentSellers,
                     marketData.Count,
                     requiredByCard);
+                postIsolatedPreprocessStopwatch.Stop();
+                profilePhases.Add(new OptimizationPhaseProfile
+                {
+                    Name = $"Purge.PreprocessPostIsolated.Round{round}",
+                    ElapsedMilliseconds = postIsolatedPreprocessStopwatch.ElapsedMilliseconds,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["remainingSellers"] = postIsolatedPreprocess.Sellers.Count,
+                        ["removedUseless"] = postIsolatedPreprocess.RemovedUseless,
+                        ["removedSingleCardDominated"] = postIsolatedPreprocess.RemovedSingleCardDominated,
+                        ["removedGlobalDominated"] = postIsolatedPreprocess.RemovedGlobalDominated
+                    }
+                });
 
                 currentSellers = postIsolatedPreprocess.Sellers;
 
@@ -745,10 +718,22 @@ public sealed class OfferPurger
                 totalRemovedGlobalDominated += postIsolatedPreprocess.RemovedGlobalDominated;
             }
 
+            var forcedStopwatch = Stopwatch.StartNew();
             var forcedSellerNames = FindForcedSellerNames(currentSellers, requiredByCard);
+            forcedStopwatch.Stop();
             var newForcedSellerNames = forcedSellerNames
                 .Where(x => !preselectedSellerNames.Contains(x))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            profilePhases.Add(new OptimizationPhaseProfile
+            {
+                Name = $"Purge.ForcedSellers.Round{round}",
+                ElapsedMilliseconds = forcedStopwatch.ElapsedMilliseconds,
+                Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["forcedSellers"] = forcedSellerNames.Count,
+                    ["newForcedSellers"] = newForcedSellerNames.Count
+                }
+            });
 
             if (newForcedSellerNames.Count > 0)
             {
@@ -759,15 +744,36 @@ public sealed class OfferPurger
                     newForcedSellerNames,
                     requiredByCard);
 
-                currentSellers = BuildCanonicalSellers(
+                var postForcedBuildStopwatch = Stopwatch.StartNew();
+                var postForcedBuild = BuildCanonicalSellersWithMetrics(
                     marketData,
                     requiredByCard,
                     fixedCostBySellerName);
+                postForcedBuildStopwatch.Stop();
+                currentSellers = postForcedBuild.Sellers;
+                profilePhases.Add(CreateCanonicalBuildPhase(
+                    $"Purge.BuildCanonicalSellers.PostForced.Round{round}",
+                    postForcedBuildStopwatch.ElapsedMilliseconds,
+                    postForcedBuild.Metrics));
 
+                var postForcedPreprocessStopwatch = Stopwatch.StartNew();
                 var postForcedPreprocess = PreprocessSellersExact(
                     currentSellers,
                     marketData.Count,
                     requiredByCard);
+                postForcedPreprocessStopwatch.Stop();
+                profilePhases.Add(new OptimizationPhaseProfile
+                {
+                    Name = $"Purge.PreprocessPostForced.Round{round}",
+                    ElapsedMilliseconds = postForcedPreprocessStopwatch.ElapsedMilliseconds,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["remainingSellers"] = postForcedPreprocess.Sellers.Count,
+                        ["removedUseless"] = postForcedPreprocess.RemovedUseless,
+                        ["removedSingleCardDominated"] = postForcedPreprocess.RemovedSingleCardDominated,
+                        ["removedGlobalDominated"] = postForcedPreprocess.RemovedGlobalDominated
+                    }
+                });
 
                 currentSellers = postForcedPreprocess.Sellers;
 
@@ -795,6 +801,7 @@ public sealed class OfferPurger
                     RequiredByCard: requiredByCard,
                     PreselectedSellerNames: preselectedSellerNames,
                     UncoveredCardIndices: uncoveredCardIndices,
+                    ProfilePhases: profilePhases,
                     TotalRemovedUseless: totalRemovedUseless,
                     TotalRemovedSingleCardDominated: totalRemovedSingleCardDominated,
                     TotalRemovedGlobalDominated: totalRemovedGlobalDominated,
@@ -803,6 +810,29 @@ public sealed class OfferPurger
             }
         }
     }
+
+    private static OptimizationPhaseProfile CreateCanonicalBuildPhase(
+        string name,
+        long elapsedMilliseconds,
+        CanonicalSellerBuildMetrics metrics)
+    {
+        return new OptimizationPhaseProfile
+        {
+            Name = name,
+            ElapsedMilliseconds = elapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["cardCount"] = metrics.CardCount,
+                ["offerCount"] = metrics.OfferCount,
+                ["uniqueSellerCount"] = metrics.UniqueSellerCount,
+                ["activeSellerCount"] = metrics.ActiveSellerCount,
+                ["activeProfileCount"] = metrics.ActiveProfileCount
+            }
+        };
+    }
+
+    private static int ResolveParallelism()
+        => Math.Max(1, Environment.ProcessorCount / 2);
 
     private static void UpsertIsolatedDpState(
     Dictionary<(int Selected, int Qty), IsolatedDpState> layer,
@@ -1024,6 +1054,7 @@ public sealed class OfferPurger
     int[] RequiredByCard,
     HashSet<string> PreselectedSellerNames,
     HashSet<int> UncoveredCardIndices,
+    IReadOnlyList<OptimizationPhaseProfile> ProfilePhases,
     int TotalRemovedUseless,
     int TotalRemovedSingleCardDominated,
     int TotalRemovedGlobalDominated,
@@ -1076,27 +1107,4 @@ public sealed class OfferPurger
         public int QtyUsable => PrefixCosts.Length - 1;
     }
     
-    private sealed class SellerAccumulator
-    {
-        private readonly List<SellerOffer>?[] _offersByCard;
-
-        public SellerAccumulator(int originalOrder, string sellerName, int cardCount)
-        {
-            OriginalOrder = originalOrder;
-            SellerName = sellerName;
-            _offersByCard = new List<SellerOffer>?[cardCount];
-        }
-
-        public int OriginalOrder { get; }
-        public string SellerName { get; }
-
-        public void AddOffer(int cardIndex, SellerOffer offer)
-        {
-            _offersByCard[cardIndex] ??= [];
-            _offersByCard[cardIndex]!.Add(offer);
-        }
-
-        public IReadOnlyList<SellerOffer>? GetOffers(int cardIndex)
-            => _offersByCard[cardIndex];
-    }
 }

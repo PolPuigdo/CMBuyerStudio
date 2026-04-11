@@ -228,6 +228,30 @@ public sealed class OfferPurgerTests
         Assert.DoesNotContain("https://example.com/variant-a", result.RemainingRequiredByCardKey.Keys);
     }
 
+    [Fact]
+    public void Purge_EmitsProfilePhasesForInstrumentation()
+    {
+        var sut = new OfferPurger();
+        var marketData = new[]
+        {
+            Card(
+                "p1",
+                desiredQuantity: 1,
+                Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+                Offer("SellerB", "p1", price: 2m, availableQuantity: 1)),
+            Card(
+                "p2",
+                desiredQuantity: 1,
+                Offer("SellerA", "p2", price: 1m, availableQuantity: 1))
+        };
+
+        var result = sut.Purge(marketData, NoFixedCosts);
+
+        Assert.Contains(result.ProfilePhases, phase => phase.Name == "Purge.BuildCanonicalSellers.Initial");
+        Assert.Contains(result.ProfilePhases, phase => phase.Name == "Purge.Total");
+        Assert.Contains(result.ProfilePhases, phase => phase.Counters.ContainsKey("remainingSellers"));
+    }
+
     private static MarketCardData Card(string productUrl, int desiredQuantity, params SellerOffer[] offers)
         => Card(productUrl, desiredQuantity, requestKey: string.Empty, offers);
 

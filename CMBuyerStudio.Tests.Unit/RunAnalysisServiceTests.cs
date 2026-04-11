@@ -9,6 +9,7 @@ using CMBuyerStudio.Application.Services;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Domain.WantedCards;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace CMBuyerStudio.Tests.Unit;
 
@@ -72,6 +73,7 @@ public sealed class RunAnalysisServiceTests
         var cacheService = new StubMarketDataCacheService([marketData]);
         var reportGenerator = new RecordingHtmlReportGenerator();
         var progressCollector = new ProgressCollector();
+        using var appPaths = new TestAppPaths();
         var sut = new RunAnalysisService(
             wantedCardsRepository,
             cacheService,
@@ -79,6 +81,7 @@ public sealed class RunAnalysisServiceTests
             reportGenerator,
             new OfferPurger(),
             new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
+            appPaths,
             Options.Create(new ShippingCostsOptions
             {
                 Default = 3.0,
@@ -101,6 +104,10 @@ public sealed class RunAnalysisServiceTests
         Assert.Equal(2, reportEvents.Count);
         Assert.Contains(reportEvents, reportEvent => reportEvent.Scope == "EU" && reportEvent.Path.EndsWith("eu.html", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(reportEvents, reportEvent => reportEvent.Scope == "Local" && reportEvent.Path.EndsWith("local.html", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(progressCollector.Events, e => e is CalculationProfileSnapshotEvent { Scope: "Setup" });
+        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
+        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "Local" });
+        Assert.Single(Directory.GetFiles(appPaths.LogsPath, "best-seller-profile-*.json"));
         Assert.IsType<RunCompletedEvent>(progressCollector.Events[^1]);
     }
 
@@ -147,6 +154,7 @@ public sealed class RunAnalysisServiceTests
                 Offer("MixSeller", "Spain", 0.50m, 1, "Lightning Bolt", "Set B", variantBUrl))
         ]);
         var reportGenerator = new RecordingHtmlReportGenerator();
+        using var appPaths = new TestAppPaths();
         var sut = new RunAnalysisService(
             wantedCardsRepository,
             cacheService,
@@ -154,6 +162,7 @@ public sealed class RunAnalysisServiceTests
             reportGenerator,
             new OfferPurger(),
             new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
+            appPaths,
             Options.Create(new ShippingCostsOptions
             {
                 Default = 3.0,
@@ -176,6 +185,79 @@ public sealed class RunAnalysisServiceTests
         Assert.Equal(2, euRequest.OptimizationResult.Assignments.Sum(assignment => assignment.Quantity));
         Assert.Contains(euRequest.OptimizationResult.Assignments, assignment => assignment.ProductUrl == variantAUrl);
         Assert.Contains(euRequest.OptimizationResult.Assignments, assignment => assignment.ProductUrl == variantBUrl);
+    }
+
+    [Fact]
+    public async Task RunAsync_CompactsEquivalentOffersAndPersistsProfiles()
+    {
+        const string variantAUrl = "https://www.cardmarket.com/en/Magic/Products/Singles/Set-A/Lightning-Bolt";
+        const string variantBUrl = "https://www.cardmarket.com/en/Magic/Products/Singles/Set-B/Lightning-Bolt";
+
+        var wantedCardsRepository = new StubWantedCardsRepository(
+        [
+            new WantedCardGroup
+            {
+                CardName = "Lightning Bolt",
+                DesiredQuantity = 2,
+                Variants =
+                [
+                    new WantedCardVariant { SetName = "Set A", ProductUrl = variantAUrl },
+                    new WantedCardVariant { SetName = "Set B", ProductUrl = variantBUrl }
+                ]
+            }
+        ]);
+        var cacheService = new StubMarketDataCacheService(
+        [
+            MarketData(
+                "Lightning Bolt",
+                "Set A",
+                variantAUrl,
+                2,
+                Offer("TrimSeller", "Spain", 0.40m, 1, "Lightning Bolt", "Set A", variantAUrl),
+                Offer("TrimSeller", "Spain", 0.40m, 1, "Lightning Bolt", "Set A", variantAUrl),
+                Offer("TrimSeller", "Spain", 0.90m, 5, "Lightning Bolt", "Set A", variantAUrl)),
+            MarketData(
+                "Lightning Bolt",
+                "Set B",
+                variantBUrl,
+                2,
+                Offer("OtherSeller", "Spain", 0.55m, 1, "Lightning Bolt", "Set B", variantBUrl))
+        ]);
+        var reportGenerator = new RecordingHtmlReportGenerator();
+        var progressCollector = new ProgressCollector();
+        using var appPaths = new TestAppPaths();
+        var sut = new RunAnalysisService(
+            wantedCardsRepository,
+            cacheService,
+            new EmptyCardMarketScraper(),
+            reportGenerator,
+            new OfferPurger(),
+            new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
+            appPaths,
+            Options.Create(new ShippingCostsOptions
+            {
+                Default = 3.0,
+                Countries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Spain"] = 1.45
+                }
+            }));
+
+        await sut.RunAsync(progressCollector);
+
+        var euRequest = Assert.Single(reportGenerator.Requests.Where(request => request.Scope == SellerScopeMode.Eu));
+        var scopedCard = Assert.Single(euRequest.Snapshot.ScopedMarketData);
+        Assert.Equal(2, scopedCard.Offers.Count);
+        Assert.Contains(scopedCard.Offers, offer => offer.SellerName == "TrimSeller" && offer.Price == 0.40m && offer.AvailableQuantity == 2);
+        Assert.Contains(scopedCard.Offers, offer => offer.SellerName == "OtherSeller" && offer.Price == 0.55m && offer.AvailableQuantity == 1);
+        Assert.DoesNotContain(scopedCard.Offers, offer => offer.SellerName == "TrimSeller" && offer.Price == 0.90m);
+
+        var profilePath = Assert.Single(Directory.GetFiles(appPaths.LogsPath, "best-seller-profile-*.json"));
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(profilePath));
+        var profiles = document.RootElement.GetProperty("profiles");
+        Assert.Equal(2, profiles.GetArrayLength());
+        Assert.Contains(progressCollector.Events, e => e is CalculationProfileSnapshotEvent { Scope: "Setup" });
+        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
     }
 
     private static MarketCardData MarketData(
@@ -299,6 +381,38 @@ public sealed class RunAnalysisServiceTests
         public void Report(RunProgressEvent value)
         {
             Events.Add(value);
+        }
+    }
+
+    private sealed class TestAppPaths : IAppPaths, IDisposable
+    {
+        private readonly string _rootPath = Path.Combine(
+            Path.GetTempPath(),
+            $"RunAnalysisServiceTests-{Guid.NewGuid():N}");
+
+        public TestAppPaths()
+        {
+            Directory.CreateDirectory(CardsPath);
+            Directory.CreateDirectory(CachePath);
+            Directory.CreateDirectory(ReportsPath);
+            Directory.CreateDirectory(LogsPath);
+            Directory.CreateDirectory(CardsCachePath);
+            Directory.CreateDirectory(ImageCardsPath);
+        }
+
+        public string CardsPath => Path.Combine(_rootPath, "Cards");
+        public string CachePath => Path.Combine(_rootPath, "Cache");
+        public string ReportsPath => Path.Combine(_rootPath, "Reports");
+        public string LogsPath => Path.Combine(_rootPath, "Logs");
+        public string CardsCachePath => Path.Combine(_rootPath, "CardsCache");
+        public string ImageCardsPath => Path.Combine(_rootPath, "Images");
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_rootPath))
+            {
+                Directory.Delete(_rootPath, recursive: true);
+            }
         }
     }
 }
