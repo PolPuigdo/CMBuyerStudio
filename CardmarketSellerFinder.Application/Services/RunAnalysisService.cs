@@ -97,11 +97,29 @@ namespace CMBuyerStudio.Application.Services
             var localOptimizationResult = _purchaseOptimizer.Optimize(localPurgedSnapshot);
             progress.Report(new CalculationFinishedEvent("Local"));
 
-            _ = euOptimizationResult;
-            _ = localOptimizationResult;
+            var reportGeneratedAt = DateTimeOffset.Now;
+            var euReport = await _htmlReportGenerator.GenerateAsync(
+                new HtmlReportRequest
+                {
+                    Scope = SellerScopeMode.Eu,
+                    OptimizationResult = euOptimizationResult,
+                    Snapshot = euPurgedSnapshot,
+                    GeneratedAt = reportGeneratedAt
+                },
+                cancellationToken);
+            progress.Report(new ReportGeneratedEvent(euReport.Path, GetScopeLabel(euReport.Scope)));
 
-            //Generate HTML report
-            //await _htmlReportGenerator.GenerateAsync(xxxxxx, cancellationToken);
+            var localReport = await _htmlReportGenerator.GenerateAsync(
+                new HtmlReportRequest
+                {
+                    Scope = SellerScopeMode.Local,
+                    OptimizationResult = localOptimizationResult,
+                    Snapshot = localPurgedSnapshot,
+                    GeneratedAt = reportGeneratedAt
+                },
+                cancellationToken);
+            progress.Report(new ReportGeneratedEvent(localReport.Path, GetScopeLabel(localReport.Scope)));
+
             progress.Report(new RunCompletedEvent());
         }
 
@@ -238,5 +256,8 @@ namespace CMBuyerStudio.Application.Services
 
             return result;
         }
+
+        private static string GetScopeLabel(SellerScopeMode scope)
+            => scope == SellerScopeMode.Eu ? "EU" : "Local";
     }
 }

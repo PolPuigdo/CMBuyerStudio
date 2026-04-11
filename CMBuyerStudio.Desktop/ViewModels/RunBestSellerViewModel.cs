@@ -1,7 +1,9 @@
-﻿using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Desktop.Commands;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -12,9 +14,13 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 {
     private readonly IRunAnalysisService _runService;
     private CancellationTokenSource? _cts;
+    private string? _euReportPath;
+    private string? _localReportPath;
 
     public ICommand RunCommand { get; }
     public ICommand CancelCommand { get; }
+    public ICommand OpenEuReportCommand { get; }
+    public ICommand OpenLocalReportCommand { get; }
 
     public ObservableCollection<RunStepViewModel> Steps { get; } = new();
 
@@ -24,8 +30,11 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 
         RunCommand = new RelayCommand(async _ => await RunAsync());
         CancelCommand = new RelayCommand(_ => Cancel());
+        OpenEuReportCommand = new RelayCommand(_ => OpenReport(_euReportPath));
+        OpenLocalReportCommand = new RelayCommand(_ => OpenReport(_localReportPath));
 
         InitializeSteps();
+        ReportsStatusText = "No reports generated yet.";
     }
 
     #region Properties
@@ -72,14 +81,27 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         set => SetProperty(ref _canCancel, value);
     }
 
+    private string _reportsStatusText = "";
+    public string ReportsStatusText
+    {
+        get => _reportsStatusText;
+        set => SetProperty(ref _reportsStatusText, value);
+    }
+
+    public bool CanOpenEuReport => HasExistingReport(_euReportPath);
+
+    public bool CanOpenLocalReport => HasExistingReport(_localReportPath);
+
     #endregion
 
     private async Task RunAsync()
     {
         _cts = new CancellationTokenSource();
+        ResetReportState();
 
         CanRun = false;
         CanCancel = true;
+        ReportsStatusText = "Generating reports...";
 
         var progress = new Progress<RunProgressEvent>(HandleProgress);
 
@@ -127,8 +149,9 @@ public sealed class RunBestSellerViewModel : ViewModelBase
                 SetStep($"{calc.Scope} Calculation", StepStatus.Completed);
                 break;
 
-            case ReportGeneratedEvent:
+            case ReportGeneratedEvent generatedReport:
                 SetStep("Reports", StepStatus.Running);
+                RegisterGeneratedReport(generatedReport);
                 break;
 
             case RunCompletedEvent:
@@ -145,5 +168,62 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         {
             step.Status = status;
         }
+    }
+
+    private void RegisterGeneratedReport(ReportGeneratedEvent generatedReport)
+    {
+        if (string.Equals(generatedReport.Scope, "EU", StringComparison.OrdinalIgnoreCase))
+        {
+            _euReportPath = generatedReport.Path;
+            OnPropertyChanged(nameof(CanOpenEuReport));
+        }
+        else if (string.Equals(generatedReport.Scope, "Local", StringComparison.OrdinalIgnoreCase))
+        {
+            _localReportPath = generatedReport.Path;
+            OnPropertyChanged(nameof(CanOpenLocalReport));
+        }
+
+        var generatedScopes = new List<string>();
+        if (CanOpenEuReport)
+        {
+            generatedScopes.Add("EU");
+        }
+
+        if (CanOpenLocalReport)
+        {
+            generatedScopes.Add("Local");
+        }
+
+        ReportsStatusText = generatedScopes.Count switch
+        {
+            0 => "Generating reports...",
+            1 => $"{generatedScopes[0]} report generated.",
+            _ => "EU and Local reports generated."
+        };
+    }
+
+    private void ResetReportState()
+    {
+        _euReportPath = null;
+        _localReportPath = null;
+        OnPropertyChanged(nameof(CanOpenEuReport));
+        OnPropertyChanged(nameof(CanOpenLocalReport));
+    }
+
+    private static bool HasExistingReport(string? path)
+        => !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
+    private static void OpenReport(string? reportPath)
+    {
+        if (!HasExistingReport(reportPath))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = reportPath,
+            UseShellExecute = true
+        });
     }
 }

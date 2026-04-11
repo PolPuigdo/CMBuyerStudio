@@ -43,6 +43,10 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\CardmarketSellerFinder.Reporting\CMBuyerStudio.Reporting.csproj" />
+  </ItemGroup>
+
   <Target Name="BuildIntegrationDependencies" BeforeTargets="ResolveReferences">
     <MSBuild Projects="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj;..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj;..\CardmarketSellerFinder.Persistence\CMBuyerStudio.Persistence.csproj;..\CardmarketSellerFinder.Infrastructure\CMBuyerStudio.Infrastructure.csproj"
              Targets="Build"
