@@ -237,6 +237,7 @@ public sealed class PurchaseOptimizer
                 snapshot,
                 activeRequiredByCard,
                 activeSelection,
+                snapshot.PreselectedSellerNames,
                 settings,
                 orderedReducedSellers);
             legacyOverrideStopwatch.Stop();
@@ -255,13 +256,20 @@ public sealed class PurchaseOptimizer
                 {
                     ["applied"] = legacyOverride.Applied ? 1 : 0,
                     ["legacySelectedSellers"] = legacyOverride.SelectedSellerNames.Count,
-                    ["currentSelectedSellers"] = activeSelection.Count
+                    ["currentSelectedSellers"] = activeSelection.Count,
+                    ["currentExtraSellers"] = legacyOverride.CurrentExtraSellerCount,
+                    ["legacyExtraSellers"] = legacyOverride.LegacyExtraSellerCount
                 },
                 Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["reason"] = legacyOverride.Reason,
                     ["currentCost"] = legacyOverride.CurrentCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
-                    ["legacyCost"] = legacyOverride.LegacyCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)
+                    ["legacyCost"] = legacyOverride.LegacyCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["shippingPenaltyFloor"] = legacyOverride.ShippingPenaltyFloor.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["currentShippingPenalty"] = legacyOverride.CurrentShippingPenalty.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["legacyShippingPenalty"] = legacyOverride.LegacyShippingPenalty.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["currentShippingAwareCost"] = legacyOverride.CurrentShippingAwareCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["legacyShippingAwareCost"] = legacyOverride.LegacyShippingAwareCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)
                 }
             });
         }
@@ -814,11 +822,13 @@ public sealed class PurchaseOptimizer
     private static HashSet<string> BuildFallbackRescueCandidateSellerNames(
         IReadOnlyList<CanonicalSeller> orderedSellers,
         int[] requiredByCard,
-        IReadOnlySet<string> fallbackSelection)
+        IReadOnlySet<string> fallbackSelection,
+        int maxCandidateSellers = LegacyFallbackRescueMaxCandidateSellers)
     {
+        maxCandidateSellers = Math.Max(1, maxCandidateSellers);
         var candidateNames = fallbackSelection.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (candidateNames.Count < LegacyFallbackRescueMaxCandidateSellers)
+        if (candidateNames.Count < maxCandidateSellers)
         {
             for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
             {
@@ -840,19 +850,22 @@ public sealed class PurchaseOptimizer
             }
         }
 
-        if (candidateNames.Count < LegacyFallbackRescueMaxCandidateSellers)
+        if (candidateNames.Count < maxCandidateSellers)
         {
+            var globalCandidateLimit = Math.Min(
+                orderedSellers.Count,
+                LegacyFallbackRescueGlobalCandidates + Math.Max(0, maxCandidateSellers - LegacyFallbackRescueMaxCandidateSellers));
             foreach (var seller in orderedSellers
                 .OrderByDescending(seller => CoverageScore(seller, requiredByCard, requiredByCard.Length))
                 .ThenBy(seller => seller.FixedCost)
                 .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
-                .Take(LegacyFallbackRescueGlobalCandidates))
+                .Take(globalCandidateLimit))
             {
                 candidateNames.Add(seller.SellerName);
             }
         }
 
-        if (candidateNames.Count <= LegacyFallbackRescueMaxCandidateSellers)
+        if (candidateNames.Count <= maxCandidateSellers)
         {
             return candidateNames;
         }
@@ -867,7 +880,7 @@ public sealed class PurchaseOptimizer
                 .Average())
             .ThenBy(seller => seller.FixedCost)
             .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
-            .Take(LegacyFallbackRescueMaxCandidateSellers)
+            .Take(maxCandidateSellers)
             .Select(seller => seller.SellerName)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -889,17 +902,32 @@ public sealed class PurchaseOptimizer
         PurgedScopeSnapshot snapshot,
         int[] requiredByCard,
         IReadOnlySet<string> currentSelection,
+        IReadOnlySet<string> preselectedSellerNames,
         RuntimeSettings settings,
         IReadOnlyList<CanonicalSeller> candidateSellers)
     {
-        if (!TryCalculateScopedSelectionObjectiveCost(
-            snapshot.ScopedMarketData,
-            snapshot.FixedCostBySellerName,
+        var shippingPenaltyFloor = ResolveLegacyFallbackShippingPenaltyFloor(snapshot.FixedCostBySellerName);
+        var currentExtraSellerCount = CountLegacyFallbackExtraSellers(currentSelection, preselectedSellerNames);
+        var currentShippingPenalty = CalculateLegacyFallbackShippingPenalty(
             currentSelection,
-            out var currentCost))
+            preselectedSellerNames,
+            snapshot.FixedCostBySellerName,
+            shippingPenaltyFloor);
+        var currentEffectiveSelection = currentSelection
+            .Concat(preselectedSellerNames)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var hasCurrentCost = TryCalculateScopedSelectionObjectiveCost(
+            snapshot,
+            currentEffectiveSelection,
+            out var currentCost);
+        if (!hasCurrentCost)
         {
-            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), InfiniteCost, InfiniteCost, "current-not-full-coverage");
+            currentCost = InfiniteCost;
         }
+        var currentShippingAwareCost = hasCurrentCost
+            ? AddCost(currentCost, currentShippingPenalty)
+            : InfiniteCost;
 
         var allowedSellerNames = BuildFallbackRescueCandidateSellerNames(
             candidateSellers,
@@ -908,62 +936,627 @@ public sealed class PurchaseOptimizer
         var legacySnapshot = BuildLegacySnapshot(snapshot.PurgedMarketData, requiredByCard, allowedSellerNames);
         if (legacySnapshot.Cards.Count == 0)
         {
-            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, "legacy-empty-snapshot");
+            return new LegacyFallbackOverrideResult(
+                Applied: false,
+                SelectedSellerNames: currentSelection.ToArray(),
+                CurrentCost: currentCost,
+                LegacyCost: InfiniteCost,
+                CurrentShippingAwareCost: currentShippingAwareCost,
+                LegacyShippingAwareCost: InfiniteCost,
+                ShippingPenaltyFloor: shippingPenaltyFloor,
+                CurrentShippingPenalty: currentShippingPenalty,
+                LegacyShippingPenalty: 0m,
+                CurrentExtraSellerCount: currentExtraSellerCount,
+                LegacyExtraSellerCount: 0,
+                Reason: "legacy-empty-snapshot");
         }
 
         try
         {
+            var legacyFixedCosts = snapshot.FixedCostBySellerName.ToDictionary(
+                pair => pair.Key,
+                pair => (double)pair.Value,
+                StringComparer.OrdinalIgnoreCase);
+            var solverTimeBudgetMinutes = Math.Min(settings.SolverTimeBudgetMinutes, 1);
             var legacyCandidatePoolMax = Math.Min(settings.CandidatePoolMax, 45);
             var legacyCandidatePoolMin = Math.Min(settings.CandidatePoolMin, legacyCandidatePoolMax);
-            var legacySolver = new BestSellerCalculator();
-            var legacyResult = legacySolver.Calculate(
-                legacySnapshot,
-                fixedCostBySellerName: snapshot.FixedCostBySellerName.ToDictionary(
-                    pair => pair.Key,
-                    pair => (double)pair.Value,
-                    StringComparer.OrdinalIgnoreCase),
-                solverOptions: new SolverOptions
-                {
-                    CandidateTopCheapestPerCard = settings.CandidateTopCheapestPerCard,
-                    CandidateTopEffectivePerCard = settings.CandidateTopEffectivePerCard,
-                    CandidatePoolMin = legacyCandidatePoolMin,
-                    CandidatePoolMax = legacyCandidatePoolMax,
-                    BeamWidth = Math.Min(settings.BeamWidth, 260),
-                    BeamAlpha = (double)settings.BeamAlpha,
-                    BeamBeta = (double)settings.BeamBeta,
-                    ExactMaxK = settings.ExactMaxK,
-                    EnableFinalCostRefine = settings.EnableFinalCostRefine,
-                    SolverTimeBudgetMinutes = Math.Min(settings.SolverTimeBudgetMinutes, 1)
-                });
-
-            var legacySelection = legacyResult.SelectedSellers
+            var overrideCandidateUniverse = candidateSellers
+                .Select(seller => seller.SellerName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            if (!TryCalculateScopedSelectionObjectiveCost(
-                snapshot.ScopedMarketData,
-                snapshot.FixedCostBySellerName,
+            var legacySelection = RunLegacyFallbackSelection(
+                legacySnapshot,
+                legacyFixedCosts,
+                settings,
+                legacyCandidatePoolMin,
+                legacyCandidatePoolMax,
+                solverTimeBudgetMinutes);
+            var usedExpandedCandidatePass = false;
+
+            var legacyExtraSellerCount = CountLegacyFallbackExtraSellers(legacySelection, preselectedSellerNames);
+            var legacyShippingPenalty = CalculateLegacyFallbackShippingPenalty(
                 legacySelection,
-                out var legacyCost))
+                preselectedSellerNames,
+                snapshot.FixedCostBySellerName,
+                shippingPenaltyFloor);
+            var legacyEffectiveSelection = legacySelection
+                .Concat(preselectedSellerNames)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var hasLegacyCost = TryCalculateScopedSelectionObjectiveCost(
+                snapshot,
+                legacyEffectiveSelection,
+                out var legacyCost);
+
+            if (!hasLegacyCost)
             {
-                return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, "legacy-not-full-coverage");
+                var expandedAllowedSellerNames = snapshot.PurgedMarketData
+                    .SelectMany(card => card.Offers)
+                    .Where(offer => offer.AvailableQuantity > 0)
+                    .Select(offer => offer.SellerName)
+                    .Concat(currentSelection)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (expandedAllowedSellerNames.Count > allowedSellerNames.Count)
+                {
+                    var expandedSnapshot = BuildLegacySnapshot(
+                        snapshot.PurgedMarketData,
+                        requiredByCard,
+                        expandedAllowedSellerNames);
+                    if (expandedSnapshot.Cards.Count > 0)
+                    {
+                        var expandedCandidatePoolMax = legacyCandidatePoolMax;
+                        var expandedCandidatePoolMin = legacyCandidatePoolMin;
+                        legacySelection = RunLegacyFallbackSelection(
+                            expandedSnapshot,
+                            legacyFixedCosts,
+                            settings,
+                            expandedCandidatePoolMin,
+                            expandedCandidatePoolMax,
+                            solverTimeBudgetMinutes);
+                        usedExpandedCandidatePass = true;
+
+                        legacyExtraSellerCount = CountLegacyFallbackExtraSellers(legacySelection, preselectedSellerNames);
+                        legacyShippingPenalty = CalculateLegacyFallbackShippingPenalty(
+                            legacySelection,
+                            preselectedSellerNames,
+                            snapshot.FixedCostBySellerName,
+                            shippingPenaltyFloor);
+                        legacyEffectiveSelection = legacySelection
+                            .Concat(preselectedSellerNames)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        hasLegacyCost = TryCalculateScopedSelectionObjectiveCost(
+                            snapshot,
+                            legacyEffectiveSelection,
+                            out legacyCost);
+                    }
+                }
+            }
+
+            if (!hasLegacyCost)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: false,
+                    SelectedSellerNames: currentSelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: InfiniteCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: InfiniteCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: usedExpandedCandidatePass ? "legacy-not-full-coverage-expanded" : "legacy-not-full-coverage");
+            }
+
+            var refinedLegacySelection = RefineLegacyFallbackOverrideSelection(
+                snapshot,
+                preselectedSellerNames,
+                overrideCandidateUniverse,
+                legacySelection,
+                shippingPenaltyFloor);
+            if (!refinedLegacySelection.SetEquals(legacySelection))
+            {
+                legacySelection = refinedLegacySelection;
+                legacyExtraSellerCount = CountLegacyFallbackExtraSellers(legacySelection, preselectedSellerNames);
+                legacyShippingPenalty = CalculateLegacyFallbackShippingPenalty(
+                    legacySelection,
+                    preselectedSellerNames,
+                    snapshot.FixedCostBySellerName,
+                    shippingPenaltyFloor);
+                legacyEffectiveSelection = legacySelection
+                    .Concat(preselectedSellerNames)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                hasLegacyCost = TryCalculateScopedSelectionObjectiveCost(
+                    snapshot,
+                    legacyEffectiveSelection,
+                    out legacyCost);
+                if (!hasLegacyCost)
+                {
+                    return new LegacyFallbackOverrideResult(
+                        Applied: false,
+                        SelectedSellerNames: currentSelection.ToArray(),
+                        CurrentCost: currentCost,
+                        LegacyCost: InfiniteCost,
+                        CurrentShippingAwareCost: currentShippingAwareCost,
+                        LegacyShippingAwareCost: InfiniteCost,
+                        ShippingPenaltyFloor: shippingPenaltyFloor,
+                        CurrentShippingPenalty: currentShippingPenalty,
+                        LegacyShippingPenalty: legacyShippingPenalty,
+                        CurrentExtraSellerCount: currentExtraSellerCount,
+                        LegacyExtraSellerCount: legacyExtraSellerCount,
+                        Reason: usedExpandedCandidatePass ? "legacy-refine-not-full-expanded" : "legacy-refine-not-full");
+                }
+            }
+
+            var reasonSuffix = usedExpandedCandidatePass ? "-expanded" : string.Empty;
+            var legacyShippingAwareCost = AddCost(legacyCost, legacyShippingPenalty);
+
+            if (!hasCurrentCost)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: true,
+                    SelectedSellerNames: legacySelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-covers-when-current-not{reasonSuffix}");
+            }
+
+            if (legacyShippingAwareCost + CostEpsilon < currentShippingAwareCost)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: true,
+                    SelectedSellerNames: legacySelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-cheaper-shipping-aware{reasonSuffix}");
+            }
+
+            if (currentShippingAwareCost + CostEpsilon < legacyShippingAwareCost)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: false,
+                    SelectedSellerNames: currentSelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-not-cheaper-shipping-aware{reasonSuffix}");
             }
 
             if (legacyCost + CostEpsilon < currentCost)
             {
-                return new LegacyFallbackOverrideResult(true, legacySelection.ToArray(), currentCost, legacyCost, "legacy-cheaper");
+                return new LegacyFallbackOverrideResult(
+                    Applied: true,
+                    SelectedSellerNames: legacySelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-cheaper{reasonSuffix}");
             }
 
-            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, legacyCost, "legacy-not-cheaper");
+            if (currentCost + CostEpsilon < legacyCost)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: false,
+                    SelectedSellerNames: currentSelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-not-cheaper{reasonSuffix}");
+            }
+
+            if (legacyExtraSellerCount < currentExtraSellerCount)
+            {
+                return new LegacyFallbackOverrideResult(
+                    Applied: true,
+                    SelectedSellerNames: legacySelection.ToArray(),
+                    CurrentCost: currentCost,
+                    LegacyCost: legacyCost,
+                    CurrentShippingAwareCost: currentShippingAwareCost,
+                    LegacyShippingAwareCost: legacyShippingAwareCost,
+                    ShippingPenaltyFloor: shippingPenaltyFloor,
+                    CurrentShippingPenalty: currentShippingPenalty,
+                    LegacyShippingPenalty: legacyShippingPenalty,
+                    CurrentExtraSellerCount: currentExtraSellerCount,
+                    LegacyExtraSellerCount: legacyExtraSellerCount,
+                    Reason: $"legacy-fewer-extra-shippings{reasonSuffix}");
+            }
+
+            return new LegacyFallbackOverrideResult(
+                Applied: false,
+                SelectedSellerNames: currentSelection.ToArray(),
+                CurrentCost: currentCost,
+                LegacyCost: legacyCost,
+                CurrentShippingAwareCost: currentShippingAwareCost,
+                LegacyShippingAwareCost: legacyShippingAwareCost,
+                ShippingPenaltyFloor: shippingPenaltyFloor,
+                CurrentShippingPenalty: currentShippingPenalty,
+                LegacyShippingPenalty: legacyShippingPenalty,
+                CurrentExtraSellerCount: currentExtraSellerCount,
+                LegacyExtraSellerCount: legacyExtraSellerCount,
+                Reason: $"legacy-tie-keep-current{reasonSuffix}");
         }
         catch (Exception exception)
         {
-            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, $"legacy-error:{exception.GetType().Name}");
+            return new LegacyFallbackOverrideResult(
+                Applied: false,
+                SelectedSellerNames: currentSelection.ToArray(),
+                CurrentCost: currentCost,
+                LegacyCost: InfiniteCost,
+                CurrentShippingAwareCost: currentShippingAwareCost,
+                LegacyShippingAwareCost: InfiniteCost,
+                ShippingPenaltyFloor: shippingPenaltyFloor,
+                CurrentShippingPenalty: currentShippingPenalty,
+                LegacyShippingPenalty: 0m,
+                CurrentExtraSellerCount: currentExtraSellerCount,
+                LegacyExtraSellerCount: 0,
+                Reason: $"legacy-error:{exception.GetType().Name}");
         }
     }
 
-    private static bool TryCalculateScopedSelectionObjectiveCost(
-        IReadOnlyList<MarketCardData> scopedMarketData,
+    private static HashSet<string> RunLegacyFallbackSelection(
+        CardMarketSnapshot legacySnapshot,
+        IReadOnlyDictionary<string, double> fixedCostBySellerName,
+        RuntimeSettings settings,
+        int candidatePoolMin,
+        int candidatePoolMax,
+        int solverTimeBudgetMinutes)
+    {
+        candidatePoolMax = Math.Max(1, candidatePoolMax);
+        candidatePoolMin = Math.Clamp(candidatePoolMin, 1, candidatePoolMax);
+
+        var legacySolver = new BestSellerCalculator();
+        var legacyResult = legacySolver.Calculate(
+            legacySnapshot,
+            fixedCostBySellerName: fixedCostBySellerName,
+            solverOptions: new SolverOptions
+            {
+                CandidateTopCheapestPerCard = settings.CandidateTopCheapestPerCard,
+                CandidateTopEffectivePerCard = settings.CandidateTopEffectivePerCard,
+                CandidatePoolMin = candidatePoolMin,
+                CandidatePoolMax = candidatePoolMax,
+                BeamWidth = Math.Min(settings.BeamWidth, 260),
+                BeamAlpha = (double)settings.BeamAlpha,
+                BeamBeta = (double)settings.BeamBeta,
+                ExactMaxK = settings.ExactMaxK,
+                EnableFinalCostRefine = settings.EnableFinalCostRefine,
+                SolverTimeBudgetMinutes = solverTimeBudgetMinutes
+            });
+
+        return legacyResult.SelectedSellers
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> RefineLegacyFallbackOverrideSelection(
+        PurgedScopeSnapshot snapshot,
+        IReadOnlySet<string> preselectedSellerNames,
+        IReadOnlyCollection<string> candidateUniverseSellerNames,
+        IReadOnlySet<string> initialSelection,
+        decimal shippingPenaltyFloor)
+    {
+        if (!TryEvaluateLegacyFallbackOverrideSelection(
+            snapshot,
+            preselectedSellerNames,
+            initialSelection,
+            shippingPenaltyFloor,
+            out var bestCost,
+            out var bestShippingAwareCost))
+        {
+            return initialSelection.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var bestSelection = initialSelection.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidates = candidateUniverseSellerNames
+            .Where(sellerName => !string.IsNullOrWhiteSpace(sellerName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        for (var iteration = 0; iteration < 3; iteration++)
+        {
+            var improved = false;
+
+            foreach (var removeSellerName in bestSelection
+                .OrderBy(sellerName => sellerName, StringComparer.OrdinalIgnoreCase))
+            {
+                var candidateSelection = bestSelection
+                    .Where(sellerName => !string.Equals(sellerName, removeSellerName, StringComparison.OrdinalIgnoreCase))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (!TryEvaluateLegacyFallbackOverrideSelection(
+                    snapshot,
+                    preselectedSellerNames,
+                    candidateSelection,
+                    shippingPenaltyFloor,
+                    out var candidateCost,
+                    out var candidateShippingAwareCost))
+                {
+                    continue;
+                }
+
+                if (!IsBetterLegacyFallbackOverrideSelection(
+                    candidateSelection,
+                    candidateCost,
+                    candidateShippingAwareCost,
+                    bestSelection,
+                    bestCost,
+                    bestShippingAwareCost))
+                {
+                    continue;
+                }
+
+                bestSelection = candidateSelection;
+                bestCost = candidateCost;
+                bestShippingAwareCost = candidateShippingAwareCost;
+                improved = true;
+            }
+
+            foreach (var addSellerName in candidates)
+            {
+                if (bestSelection.Contains(addSellerName))
+                {
+                    continue;
+                }
+
+                var candidateSelection = bestSelection
+                    .Append(addSellerName)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (!TryEvaluateLegacyFallbackOverrideSelection(
+                    snapshot,
+                    preselectedSellerNames,
+                    candidateSelection,
+                    shippingPenaltyFloor,
+                    out var candidateCost,
+                    out var candidateShippingAwareCost))
+                {
+                    continue;
+                }
+
+                if (!IsBetterLegacyFallbackOverrideSelection(
+                    candidateSelection,
+                    candidateCost,
+                    candidateShippingAwareCost,
+                    bestSelection,
+                    bestCost,
+                    bestShippingAwareCost))
+                {
+                    continue;
+                }
+
+                bestSelection = candidateSelection;
+                bestCost = candidateCost;
+                bestShippingAwareCost = candidateShippingAwareCost;
+                improved = true;
+            }
+
+            foreach (var removeSellerName in bestSelection
+                .OrderBy(sellerName => sellerName, StringComparer.OrdinalIgnoreCase))
+            {
+                foreach (var addSellerName in candidates)
+                {
+                    if (bestSelection.Contains(addSellerName)
+                        || string.Equals(removeSellerName, addSellerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var candidateSelection = bestSelection
+                        .Where(sellerName => !string.Equals(sellerName, removeSellerName, StringComparison.OrdinalIgnoreCase))
+                        .Append(addSellerName)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    if (!TryEvaluateLegacyFallbackOverrideSelection(
+                        snapshot,
+                        preselectedSellerNames,
+                        candidateSelection,
+                        shippingPenaltyFloor,
+                        out var candidateCost,
+                        out var candidateShippingAwareCost))
+                    {
+                        continue;
+                    }
+
+                    if (!IsBetterLegacyFallbackOverrideSelection(
+                        candidateSelection,
+                        candidateCost,
+                        candidateShippingAwareCost,
+                        bestSelection,
+                        bestCost,
+                        bestShippingAwareCost))
+                    {
+                        continue;
+                    }
+
+                    bestSelection = candidateSelection;
+                    bestCost = candidateCost;
+                    bestShippingAwareCost = candidateShippingAwareCost;
+                    improved = true;
+                }
+            }
+
+            if (!improved)
+            {
+                break;
+            }
+        }
+
+        return bestSelection;
+    }
+
+    private static bool TryEvaluateLegacyFallbackOverrideSelection(
+        PurgedScopeSnapshot snapshot,
+        IReadOnlySet<string> preselectedSellerNames,
+        IReadOnlyCollection<string> selectedSellerNames,
+        decimal shippingPenaltyFloor,
+        out decimal scopedCost,
+        out decimal shippingAwareCost)
+    {
+        scopedCost = InfiniteCost;
+        shippingAwareCost = InfiniteCost;
+
+        var effectiveSelection = selectedSellerNames
+            .Concat(preselectedSellerNames)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!TryCalculateScopedSelectionObjectiveCost(
+            snapshot,
+            effectiveSelection,
+            out scopedCost))
+        {
+            return false;
+        }
+
+        var shippingPenalty = CalculateLegacyFallbackShippingPenalty(
+            selectedSellerNames,
+            preselectedSellerNames,
+            snapshot.FixedCostBySellerName,
+            shippingPenaltyFloor);
+        shippingAwareCost = AddCost(scopedCost, shippingPenalty);
+        return true;
+    }
+
+    private static bool IsBetterLegacyFallbackOverrideSelection(
+        IReadOnlyCollection<string> candidateSelection,
+        decimal candidateCost,
+        decimal candidateShippingAwareCost,
+        IReadOnlyCollection<string> incumbentSelection,
+        decimal incumbentCost,
+        decimal incumbentShippingAwareCost)
+    {
+        if (candidateShippingAwareCost + CostEpsilon < incumbentShippingAwareCost)
+        {
+            return true;
+        }
+
+        if (incumbentShippingAwareCost + CostEpsilon < candidateShippingAwareCost)
+        {
+            return false;
+        }
+
+        if (candidateCost + CostEpsilon < incumbentCost)
+        {
+            return true;
+        }
+
+        if (incumbentCost + CostEpsilon < candidateCost)
+        {
+            return false;
+        }
+
+        var candidateOrdered = candidateSelection
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(sellerName => sellerName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var incumbentOrdered = incumbentSelection
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(sellerName => sellerName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var lexicalCompare = CompareLexicographically(candidateOrdered, incumbentOrdered);
+        if (lexicalCompare != 0)
+        {
+            return lexicalCompare < 0;
+        }
+
+        return candidateOrdered.Length < incumbentOrdered.Length;
+    }
+
+    private static int CompareLexicographically(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        var compareLength = Math.Min(left.Count, right.Count);
+        for (var index = 0; index < compareLength; index++)
+        {
+            var compare = StringComparer.OrdinalIgnoreCase.Compare(left[index], right[index]);
+            if (compare != 0)
+            {
+                return compare;
+            }
+        }
+
+        return left.Count.CompareTo(right.Count);
+    }
+
+    private static int CountLegacyFallbackExtraSellers(
+        IReadOnlyCollection<string> selectedSellerNames,
+        IReadOnlySet<string> preselectedSellerNames)
+    {
+        if (selectedSellerNames.Count == 0)
+        {
+            return 0;
+        }
+
+        return selectedSellerNames
+            .Where(sellerName => !string.IsNullOrWhiteSpace(sellerName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count(sellerName => !preselectedSellerNames.Contains(sellerName));
+    }
+
+    private static decimal CalculateLegacyFallbackShippingPenalty(
+        IReadOnlyCollection<string> selectedSellerNames,
+        IReadOnlySet<string> preselectedSellerNames,
         IReadOnlyDictionary<string, decimal> fixedCostBySellerName,
+        decimal shippingPenaltyFloor)
+    {
+        var totalPenalty = 0m;
+
+        foreach (var sellerName in selectedSellerNames
+            .Where(sellerName => !string.IsNullOrWhiteSpace(sellerName))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (preselectedSellerNames.Contains(sellerName))
+            {
+                continue;
+            }
+
+            var fixedCost = fixedCostBySellerName.GetValueOrDefault(sellerName, 0m);
+            totalPenalty = AddCost(totalPenalty, fixedCost > 0m ? fixedCost : shippingPenaltyFloor);
+        }
+
+        return totalPenalty;
+    }
+
+    private static decimal ResolveLegacyFallbackShippingPenaltyFloor(
+        IReadOnlyDictionary<string, decimal> fixedCostBySellerName)
+    {
+        var minimumPositiveFixedCost = fixedCostBySellerName
+            .Values
+            .Where(cost => cost > 0m)
+            .DefaultIfEmpty(0m)
+            .Min();
+
+        return minimumPositiveFixedCost;
+    }
+
+    private static bool TryCalculateScopedSelectionObjectiveCost(
+        PurgedScopeSnapshot snapshot,
         IReadOnlyCollection<string> selectedSellerNames,
         out decimal totalCost)
     {
@@ -973,20 +1566,61 @@ public sealed class PurchaseOptimizer
             return false;
         }
 
-        var assignments = BuildAssignments(
-            scopedMarketData,
-            selectedSellerNames,
-            out var uncoveredCardKeys,
-            out var cardsTotalCost);
-        if (assignments.Count == 0 || uncoveredCardKeys.Count > 0)
+        var selectedSellerSet = selectedSellerNames
+            .Where(sellerName => !string.IsNullOrWhiteSpace(sellerName))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (selectedSellerSet.Count == 0)
         {
             return false;
         }
 
-        var shippingTotal = selectedSellerNames
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Sum(sellerName => fixedCostBySellerName.GetValueOrDefault(sellerName, 0m));
-        totalCost = cardsTotalCost + shippingTotal;
+        var cardsTotalCost = 0m;
+        foreach (var card in snapshot.ScopedMarketData)
+        {
+            var requiredQuantity = ResolveRemainingRequiredQuantity(
+                ResolveCardKey(card.Target),
+                card.Target.DesiredQuantity,
+                snapshot.RemainingRequiredByCardKey);
+            if (requiredQuantity <= 0)
+            {
+                continue;
+            }
+
+            var coveredQuantity = 0;
+            foreach (var offer in card.Offers
+                .Where(offer => selectedSellerSet.Contains(offer.SellerName))
+                .OrderBy(offer => offer.Price)
+                .ThenBy(offer => offer.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.ProductUrl, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.CardName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.SetName, StringComparer.OrdinalIgnoreCase))
+            {
+                if (coveredQuantity >= requiredQuantity)
+                {
+                    break;
+                }
+
+                var take = Math.Min(offer.AvailableQuantity, requiredQuantity - coveredQuantity);
+                if (take <= 0)
+                {
+                    continue;
+                }
+
+                cardsTotalCost = AddCost(cardsTotalCost, offer.Price * take);
+                coveredQuantity += take;
+            }
+
+            if (coveredQuantity < requiredQuantity)
+            {
+                totalCost = InfiniteCost;
+                return false;
+            }
+        }
+
+        var shippingTotal = selectedSellerSet
+            .Sum(sellerName => snapshot.FixedCostBySellerName.GetValueOrDefault(sellerName, 0m));
+        totalCost = AddCost(cardsTotalCost, shippingTotal);
         return true;
     }
 
@@ -4719,6 +5353,13 @@ public sealed class PurchaseOptimizer
         IReadOnlyList<string> SelectedSellerNames,
         decimal CurrentCost,
         decimal LegacyCost,
+        decimal CurrentShippingAwareCost,
+        decimal LegacyShippingAwareCost,
+        decimal ShippingPenaltyFloor,
+        decimal CurrentShippingPenalty,
+        decimal LegacyShippingPenalty,
+        int CurrentExtraSellerCount,
+        int LegacyExtraSellerCount,
         string Reason);
 
     private sealed class SearchPrecomputationContext
