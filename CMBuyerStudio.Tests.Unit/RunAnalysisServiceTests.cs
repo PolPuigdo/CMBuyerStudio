@@ -108,6 +108,7 @@ public sealed class RunAnalysisServiceTests
         Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
         Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "Local" });
         Assert.Single(Directory.GetFiles(appPaths.LogsPath, "best-seller-profile-*.json"));
+        Assert.Equal(2, Directory.GetFiles(appPaths.LogsPath, "best-seller-snapshot-*.json").Length);
         Assert.IsType<RunCompletedEvent>(progressCollector.Events[^1]);
     }
 
@@ -174,7 +175,7 @@ public sealed class RunAnalysisServiceTests
 
         await sut.RunAsync(new ProgressCollector());
 
-        var euRequest = Assert.Single(reportGenerator.Requests.Where(request => request.Scope == SellerScopeMode.Eu));
+        var euRequest = Assert.Single(reportGenerator.Requests, request => request.Scope == SellerScopeMode.Eu);
         var scopedCard = Assert.Single(euRequest.Snapshot.ScopedMarketData);
         Assert.Equal("Lightning Bolt", scopedCard.Target.RequestKey);
         Assert.Equal("Lightning Bolt", scopedCard.Target.CardName);
@@ -245,7 +246,7 @@ public sealed class RunAnalysisServiceTests
 
         await sut.RunAsync(progressCollector);
 
-        var euRequest = Assert.Single(reportGenerator.Requests.Where(request => request.Scope == SellerScopeMode.Eu));
+        var euRequest = Assert.Single(reportGenerator.Requests, request => request.Scope == SellerScopeMode.Eu);
         var scopedCard = Assert.Single(euRequest.Snapshot.ScopedMarketData);
         Assert.Equal(2, scopedCard.Offers.Count);
         Assert.Contains(scopedCard.Offers, offer => offer.SellerName == "TrimSeller" && offer.Price == 0.40m && offer.AvailableQuantity == 2);
@@ -256,6 +257,11 @@ public sealed class RunAnalysisServiceTests
         using var document = JsonDocument.Parse(await File.ReadAllTextAsync(profilePath));
         var profiles = document.RootElement.GetProperty("profiles");
         Assert.Equal(2, profiles.GetArrayLength());
+
+        var snapshotPath = Assert.Single(Directory.GetFiles(appPaths.LogsPath, "best-seller-snapshot-*-eu.json"));
+        using var snapshotDocument = JsonDocument.Parse(await File.ReadAllTextAsync(snapshotPath));
+        Assert.Equal("EU", snapshotDocument.RootElement.GetProperty("scope").GetString());
+        Assert.True(snapshotDocument.RootElement.GetProperty("snapshot").TryGetProperty("purgedMarketData", out _));
         Assert.Contains(progressCollector.Events, e => e is CalculationProfileSnapshotEvent { Scope: "Setup" });
         Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
     }

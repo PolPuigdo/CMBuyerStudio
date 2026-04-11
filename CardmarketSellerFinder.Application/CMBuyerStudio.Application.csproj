@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +13,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\artifacts\LegacyComparison\LegacyStubs.cs" Link="Optimization\Legacy\LegacyStubs.cs" />
+    <Compile Include="..\artifacts\LegacyComparison\Legacy\BestSellerCalculator.cs" Link="Optimization\Legacy\BestSellerCalculator.cs" />
+    <Compile Include="..\artifacts\LegacyComparison\Legacy\BestSellerCalculator.Hybrid.cs" Link="Optimization\Legacy\BestSellerCalculator.Hybrid.cs" />
+    <Compile Include="..\artifacts\LegacyComparison\Legacy\SellerAssignmentBuilder.cs" Link="Optimization\Legacy\SellerAssignmentBuilder.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,9 @@
 using CMBuyerStudio.Application.Common.Options;
 using CMBuyerStudio.Application.Models;
 using CMBuyerStudio.Domain.Market;
+using CardmarketSellerFinder.Engine;
+using CardmarketSellerFinder.Models;
+using CardmarketSellerFinder.Options;
 using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
 
@@ -12,6 +15,13 @@ public sealed class PurchaseOptimizer
 {
     private const decimal CostEpsilon = 0.000001m;
     private const decimal InfiniteCost = decimal.MaxValue / 4m;
+    private const int LegacySmallPoolBruteForceMaxSellerCount = 14;
+    private const int LegacyQuickExactMaxK = 4;
+    private const int LegacyQuickProvisionalK = 4;
+    private const double LegacyQuickExactCombinationLimit = 2_500_000d;
+    private const int LegacyFallbackRescueMaxCandidateSellers = 30;
+    private const int LegacyFallbackRescueTopProvidersPerCard = 5;
+    private const int LegacyFallbackRescueGlobalCandidates = 20;
 
     private readonly PurchaseOptimizerOptions _options;
 
@@ -34,7 +44,7 @@ public sealed class PurchaseOptimizer
 
         if (snapshot.ScopedMarketData.Count == 0)
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+            return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var requiredByCard = snapshot.PurgedMarketData
@@ -46,7 +56,7 @@ public sealed class PurchaseOptimizer
 
         if (requiredByCard.Length == 0 || requiredByCard.All(quantity => quantity <= 0))
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+            return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var settings = ResolveRuntimeSettings(_options);
@@ -65,13 +75,13 @@ public sealed class PurchaseOptimizer
         if (canonicalSellers.Count == 0)
         {
             AddUncoveredCardKeys(snapshot.PurgedMarketData, requiredByCard, knownUncoveredCardKeys);
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+            return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var activeRequiredByCard = requiredByCard.ToArray();
         if (activeRequiredByCard.All(quantity => quantity <= 0))
         {
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+            return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var effectiveParallelism = ResolveParallelism();
@@ -85,6 +95,12 @@ public sealed class PurchaseOptimizer
             settings);
         candidatePoolStopwatch.Stop();
         var candidateSellerNames = candidatePoolResult.CandidateSellerNames;
+        if (canonicalSellers.Count <= LegacySmallPoolBruteForceMaxSellerCount)
+        {
+            candidateSellerNames = canonicalSellers
+                .Select(seller => seller.SellerName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
         profilePhases.Add(new OptimizationPhaseProfile
         {
             Name = "Optimize.CandidatePool",
@@ -101,7 +117,8 @@ public sealed class PurchaseOptimizer
             Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["candidatePoolMin"] = settings.CandidatePoolMin.ToString(),
-                ["candidatePoolMax"] = settings.CandidatePoolMax.ToString()
+                ["candidatePoolMax"] = settings.CandidatePoolMax.ToString(),
+                ["smallPoolExpandedToAllCanonical"] = canonicalSellers.Count <= LegacySmallPoolBruteForceMaxSellerCount ? "true" : "false"
             },
             Details = candidatePoolResult.CardDetails
         });
@@ -113,7 +130,7 @@ public sealed class PurchaseOptimizer
         if (reducedSellers.Count == 0)
         {
             AddUncoveredCardKeys(snapshot.PurgedMarketData, activeRequiredByCard, knownUncoveredCardKeys);
-            return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+            return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
         }
 
         var cardCount = activeRequiredByCard.Length;
@@ -122,91 +139,62 @@ public sealed class PurchaseOptimizer
             activeRequiredByCard,
             cardCount).ToList();
 
-        var beamStopwatch = Stopwatch.StartNew();
-        var beamResult = new BeamSearchSolver(
+        var quickSolveStopwatch = Stopwatch.StartNew();
+        var quickSolveResult = SolveLegacyCompatibleSelection(
             orderedReducedSellers,
             activeRequiredByCard,
-            settings)
-            .Run();
-        beamStopwatch.Stop();
-        profilePhases.Add(new OptimizationPhaseProfile
-        {
-            Name = "Optimize.BeamSearch",
-            ElapsedMilliseconds = beamStopwatch.ElapsedMilliseconds,
-            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["candidateSellers"] = orderedReducedSellers.Count,
-                ["beamSelectionSize"] = beamResult.SelectedOrderedSellerIndices.Count,
-                ["isFullCoverage"] = beamResult.IsFullCoverage ? 1 : 0
-            },
-            Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["beamWidth"] = settings.BeamWidth.ToString(),
-                ["beamAlpha"] = settings.BeamAlpha.ToString(),
-                ["beamBeta"] = settings.BeamBeta.ToString()
-            }
-        });
-
-        var exactStopwatch = Stopwatch.StartNew();
-        var reducedExactResult = new ReducedExactSolver(
-            orderedReducedSellers,
-            activeRequiredByCard,
-            cardCount,
             effectiveParallelism,
-            settings)
-            .Solve(beamResult);
-        exactStopwatch.Stop();
+            settings);
+        quickSolveStopwatch.Stop();
         profilePhases.Add(new OptimizationPhaseProfile
         {
             Name = "Optimize.ReducedExact",
-            ElapsedMilliseconds = exactStopwatch.ElapsedMilliseconds,
+            ElapsedMilliseconds = quickSolveStopwatch.ElapsedMilliseconds,
             Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
             {
                 ["candidateSellers"] = orderedReducedSellers.Count,
-                ["exactSelectionSize"] = reducedExactResult.SelectedOrderedSellerIndices.Count,
-                ["isFullCoverage"] = reducedExactResult.IsFullCoverage ? 1 : 0,
+                ["exactSelectionSize"] = quickSolveResult.SelectedSellerNames.Count,
+                ["isFullCoverage"] = quickSolveResult.IsFullCoverage ? 1 : 0,
                 ["parallelism"] = effectiveParallelism,
-                ["lowerBoundSellerCount"] = reducedExactResult.Metrics.LowerBoundSellerCount,
-                ["targetKsEvaluated"] = reducedExactResult.Metrics.TargetKsEvaluated,
-                ["deadlineHit"] = reducedExactResult.Metrics.DeadlineHit ? 1 : 0,
-                ["bestCostUpdates"] = reducedExactResult.Metrics.BestCostUpdates,
-                ["partitionCount"] = reducedExactResult.Metrics.PartitionCount
+                ["lowerBoundSellerCount"] = quickSolveResult.Metrics.LowerBoundSellerCount,
+                ["targetKsEvaluated"] = quickSolveResult.Metrics.TargetKsEvaluated,
+                ["deadlineHit"] = 0,
+                ["bestCostUpdates"] = quickSolveResult.Metrics.BestCostUpdates,
+                ["partitionCount"] = quickSolveResult.Metrics.PartitionCount
             },
             Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
+                ["legacyQuickExactMaxK"] = LegacyQuickExactMaxK.ToString(),
+                ["legacyQuickProvisionalK"] = LegacyQuickProvisionalK.ToString(),
                 ["exactMaxK"] = settings.ExactMaxK.ToString(),
                 ["solverTimeBudgetMinutes"] = settings.SolverTimeBudgetMinutes.ToString(),
-                ["incumbentSource"] = reducedExactResult.Metrics.IncumbentSource
+                ["incumbentSource"] = quickSolveResult.Metrics.IncumbentSource
             }
         });
 
-        HashSet<string> activeSelection;
-        if (reducedExactResult.IsFullCoverage || beamResult.IsFullCoverage)
+        var activeSelection = quickSolveResult.SelectedSellerNames
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (quickSolveResult.IsFullCoverage)
         {
-            var usedBeamFallback = !reducedExactResult.IsFullCoverage && beamResult.IsFullCoverage;
-            activeSelection = reducedExactResult.SelectedOrderedSellerIndices
-                .Select(index => orderedReducedSellers[index].SellerName)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            if (usedBeamFallback)
-            {
-                activeSelection = beamResult.SelectedOrderedSellerIndices
-                    .Select(index => orderedReducedSellers[index].SellerName)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            }
-
             if (settings.EnableFinalCostRefine
-                && usedBeamFallback
+                && !IsExactIncumbentSource(quickSolveResult.Metrics.IncumbentSource)
                 && activeSelection.Count > 0
                 && activeSelection.Count <= settings.ExactMaxK)
             {
+                var refineCombinationCount = CalculateCombinationCount(
+                    orderedReducedSellers.Count,
+                    activeSelection.Count);
+
+                if (!double.IsNaN(refineCombinationCount)
+                    && refineCombinationCount <= LegacyQuickExactCombinationLimit)
+                {
                 var refineStopwatch = Stopwatch.StartNew();
                 activeSelection = RefineSelectionForFixedSellerCountOnOrderedCanonical(
                     orderedReducedSellers,
                     activeRequiredByCard,
                     activeSelection,
-                    effectiveParallelism,
-                    reducedExactResult.SearchContext);
+                    effectiveParallelism);
                 refineStopwatch.Stop();
                 profilePhases.Add(new OptimizationPhaseProfile
                 {
@@ -216,9 +204,10 @@ public sealed class PurchaseOptimizer
                     {
                         ["selectedSellers"] = activeSelection.Count,
                         ["parallelism"] = effectiveParallelism,
-                        ["reusedExactContext"] = reducedExactResult.SearchContext is null ? 0 : 1
+                        ["reusedExactContext"] = 0
                     }
                 });
+                }
             }
 
             if (activeSelection.Count > 1)
@@ -240,22 +229,50 @@ public sealed class PurchaseOptimizer
                 });
             }
         }
-        else
+
+        if (string.Equals(quickSolveResult.Metrics.IncumbentSource, "legacy-fallback", StringComparison.OrdinalIgnoreCase))
         {
-            activeSelection = RefinePartialSelection(
-                orderedReducedSellers,
+            var legacyOverrideStopwatch = Stopwatch.StartNew();
+            var legacyOverride = TryLegacyFallbackOverride(
+                snapshot,
                 activeRequiredByCard,
-                beamResult.SelectedOrderedSellerIndices,
-                reducedExactResult.SelectedOrderedSellerIndices);
+                activeSelection,
+                settings,
+                orderedReducedSellers);
+            legacyOverrideStopwatch.Stop();
+
+            if (legacyOverride.Applied)
+            {
+                activeSelection = legacyOverride.SelectedSellerNames
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+
+            profilePhases.Add(new OptimizationPhaseProfile
+            {
+                Name = "Optimize.LegacyFallbackOverride",
+                ElapsedMilliseconds = legacyOverrideStopwatch.ElapsedMilliseconds,
+                Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["applied"] = legacyOverride.Applied ? 1 : 0,
+                    ["legacySelectedSellers"] = legacyOverride.SelectedSellerNames.Count,
+                    ["currentSelectedSellers"] = activeSelection.Count
+                },
+                Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["reason"] = legacyOverride.Reason,
+                    ["currentCost"] = legacyOverride.CurrentCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture),
+                    ["legacyCost"] = legacyOverride.LegacyCost.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)
+                }
+            });
         }
 
         selectedSellerNames.UnionWith(activeSelection);
 
-        return BuildResult(snapshot.ScopedMarketData, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
+        return BuildResult(snapshot, selectedSellerNames, knownUncoveredCardKeys, profilePhases);
     }
 
     private static PurchaseOptimizationResult BuildResult(
-        IReadOnlyList<MarketCardData> scopedMarketData,
+        PurgedScopeSnapshot snapshot,
         IReadOnlyCollection<string> selectedSellerNames,
         IReadOnlySet<string> knownUncoveredCardKeys,
         IReadOnlyList<OptimizationPhaseProfile>? existingPhases = null)
@@ -263,7 +280,7 @@ public sealed class PurchaseOptimizer
         var profilePhases = existingPhases?.ToList() ?? [];
         var assignmentsStopwatch = Stopwatch.StartNew();
         var assignments = BuildAssignments(
-            scopedMarketData,
+            snapshot.ScopedMarketData,
             selectedSellerNames,
             out var uncoveredCards,
             out var totalCardsCost);
@@ -280,23 +297,951 @@ public sealed class PurchaseOptimizer
             }
         });
 
-        var uncoveredCardKeys = uncoveredCards
+        var validationStopwatch = Stopwatch.StartNew();
+        var assignmentValidation = ValidateAssignmentsAndRepairResidual(
+            snapshot.ScopedMarketData,
+            snapshot.FixedCostBySellerName,
+            selectedSellerNames,
+            assignments,
+            uncoveredCards);
+        validationStopwatch.Stop();
+        profilePhases.Add(new OptimizationPhaseProfile
+        {
+            Name = "Optimize.AssignmentValidation",
+            ElapsedMilliseconds = validationStopwatch.ElapsedMilliseconds,
+            Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["targetUnits"] = snapshot.ScopedMarketData.Sum(card => card.Target.DesiredQuantity),
+                ["initialAssignedUnits"] = assignments.Sum(assignment => assignment.Quantity),
+                ["finalAssignedUnits"] = assignmentValidation.Assignments.Sum(assignment => assignment.Quantity),
+                ["initialSelectedSellers"] = selectedSellerNames.Count,
+                ["finalSelectedSellers"] = assignmentValidation.SelectedSellerNames.Count,
+                ["initialUncoveredCards"] = uncoveredCards.Count,
+                ["residualFixupAddedSellers"] = assignmentValidation.AddedSellerNames.Count,
+                ["finalUncoveredCards"] = assignmentValidation.UncoveredCardKeys.Count,
+                ["finalAssignments"] = assignmentValidation.Assignments.Count
+            },
+            Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["fixupApplied"] = assignmentValidation.AddedSellerNames.Count > 0 ? "true" : "false",
+                ["addedSellers"] = string.Join(", ", assignmentValidation.AddedSellerNames.OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            }
+        });
+
+        var uncoveredCardKeys = assignmentValidation.UncoveredCardKeys
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         uncoveredCardKeys.UnionWith(knownUncoveredCardKeys);
 
-        var selectedSellers = selectedSellerNames
+        var selectedSellers = assignmentValidation.SelectedSellerNames
             .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return new PurchaseOptimizationResult
         {
             SelectedSellerNames = selectedSellers,
-            Assignments = assignments,
+            Assignments = assignmentValidation.Assignments,
             SellerCount = selectedSellers.Count,
-            CardsTotalPrice = totalCardsCost,
+            CardsTotalPrice = assignmentValidation.CardsTotalPrice,
             UncoveredCardKeys = uncoveredCardKeys,
             ProfilePhases = profilePhases
         };
+    }
+
+    private static LegacyQuickSolveResult SolveLegacyCompatibleSelection(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int effectiveParallelism,
+        RuntimeSettings settings)
+    {
+        if (orderedSellers.Count == 0)
+        {
+            return new LegacyQuickSolveResult(
+                [],
+                IsFullCoverage: false,
+                new LegacyQuickSolveMetrics(
+                    LowerBoundSellerCount: 0,
+                    TargetKsEvaluated: 0,
+                    BestCostUpdates: 0,
+                    PartitionCount: 0,
+                    IncumbentSource: "empty"));
+        }
+
+        var cardCount = requiredByCard.Length;
+        var sellerCount = orderedSellers.Count;
+        var sellerCardQty = BuildSellerCardQtyMatrix(orderedSellers, cardCount);
+        var suffixCoverage = BuildSuffixCoverageMatrix(sellerCardQty, sellerCount, cardCount);
+
+        var impossibleCardIndices = FindImpossibleCardIndices(requiredByCard, sellerCardQty, sellerCount);
+        if (impossibleCardIndices.Count > 0)
+        {
+            return new LegacyQuickSolveResult(
+                [],
+                IsFullCoverage: false,
+                new LegacyQuickSolveMetrics(
+                    LowerBoundSellerCount: 0,
+                    TargetKsEvaluated: 0,
+                    BestCostUpdates: 0,
+                    PartitionCount: 0,
+                    IncumbentSource: "impossible"));
+        }
+
+        if (sellerCount <= LegacySmallPoolBruteForceMaxSellerCount)
+        {
+            var bruteForceSelection = FindBestSelectionByObjective(
+                orderedSellers,
+                requiredByCard,
+                cardCount);
+
+            return new LegacyQuickSolveResult(
+                bruteForceSelection.SelectedOrderedSellerIndices
+                    .Select(index => orderedSellers[index].SellerName)
+                    .ToArray(),
+                IsFullCoverage: bruteForceSelection.UncoveredCardIndices.Count == 0,
+                new LegacyQuickSolveMetrics(
+                    LowerBoundSellerCount: 0,
+                    TargetKsEvaluated: bruteForceSelection.SelectedOrderedSellerIndices.Count,
+                    BestCostUpdates: bruteForceSelection.SelectionCountEvaluated,
+                    PartitionCount: 1,
+                    IncumbentSource: "legacy-small-bruteforce"));
+        }
+
+        var lowerBoundSellerCount = CalculateLowerBoundSellerCount(requiredByCard, sellerCardQty, cardCount, sellerCount);
+        var greedyUpperBoundSelection = BuildGreedyUpperBoundSelection(requiredByCard, sellerCardQty, cardCount, sellerCount);
+        if (greedyUpperBoundSelection is null)
+        {
+            return new LegacyQuickSolveResult(
+                [],
+                IsFullCoverage: false,
+                new LegacyQuickSolveMetrics(
+                    LowerBoundSellerCount: lowerBoundSellerCount,
+                    TargetKsEvaluated: 0,
+                    BestCostUpdates: 0,
+                    PartitionCount: 0,
+                    IncumbentSource: "no-upper-bound"));
+        }
+
+        var greedySelectionOrdered = greedyUpperBoundSelection.OrderBy(index => index).ToList();
+        var exactUpperBoundSellerCount = Math.Min(Math.Min(LegacyQuickExactMaxK, settings.ExactMaxK), sellerCount);
+        SelectionResult? bestExactSelection = null;
+        var targetKsEvaluated = 0;
+        var bestCostUpdates = 0;
+        var partitionCount = 0;
+
+        if (lowerBoundSellerCount <= exactUpperBoundSellerCount)
+        {
+            var searchContext = BuildSearchPrecomputationContext(orderedSellers, requiredByCard, cardCount);
+            EnsureSearchContextHasSuffixMinimumCosts(searchContext, orderedSellers, requiredByCard);
+
+            for (var targetSellerCount = lowerBoundSellerCount; targetSellerCount <= exactUpperBoundSellerCount; targetSellerCount++)
+            {
+                var combinationCount = CalculateCombinationCount(sellerCount, targetSellerCount);
+                if (double.IsNaN(combinationCount) || combinationCount > LegacyQuickExactCombinationLimit)
+                {
+                    continue;
+                }
+
+                targetKsEvaluated++;
+                var initialSelection = greedySelectionOrdered.Count == targetSellerCount
+                    ? greedySelectionOrdered
+                    : null;
+                var initialUpperBoundCost = initialSelection is null
+                    ? InfiniteCost
+                    : CalculateExactCostForSelection(orderedSellers, requiredByCard, cardCount, initialSelection);
+
+                var phaseB = FindBestSelectionForFixedK(
+                    targetSellerCount,
+                    requiredByCard,
+                    orderedSellers,
+                    searchContext,
+                    effectiveParallelism,
+                    initialUpperBoundCost,
+                    initialSelection);
+
+                partitionCount += phaseB.PartitionCount;
+                if (phaseB.BestSelection is null || IsInfinite(phaseB.BestSelection.TotalCost))
+                {
+                    continue;
+                }
+
+                if (IsBetterCandidate(phaseB.BestSelection, bestExactSelection))
+                {
+                    bestExactSelection = phaseB.BestSelection;
+                    bestCostUpdates++;
+                }
+            }
+        }
+
+        if (bestExactSelection is not null)
+        {
+            return new LegacyQuickSolveResult(
+                bestExactSelection.SelectedOrderedSellerIndices
+                    .Select(index => orderedSellers[index].SellerName)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                IsFullCoverage: true,
+                new LegacyQuickSolveMetrics(
+                    LowerBoundSellerCount: lowerBoundSellerCount,
+                    TargetKsEvaluated: targetKsEvaluated,
+                    BestCostUpdates: bestCostUpdates,
+                    PartitionCount: partitionCount,
+                    IncumbentSource: "legacy-quick-exact"));
+        }
+
+        var provisionalSelection = BuildGreedyProvisionalSelection(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            Math.Min(LegacyQuickProvisionalK, sellerCount));
+        provisionalSelection = RefineSelectionWithSingleSwap(
+            orderedSellers,
+            requiredByCard,
+            cardCount,
+            provisionalSelection);
+
+        var selectedSellerNames = provisionalSelection
+            .Select(index => orderedSellers[index].SellerName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ApplyLegacyFallbackForRemainingCards(
+            orderedSellers,
+            requiredByCard,
+            selectedSellerNames,
+            new HashSet<int>());
+
+        var incumbentSource = selectedSellerNames.Count == 0 ? "empty-provisional" : "legacy-fallback";
+        if (selectedSellerNames.Count > 0
+            && IsSelectionFullyCoveredByNames(orderedSellers, requiredByCard, selectedSellerNames))
+        {
+            var fallbackRescue = TryRescueFallbackSelection(
+                orderedSellers,
+                requiredByCard,
+                selectedSellerNames,
+                effectiveParallelism,
+                settings);
+            targetKsEvaluated += fallbackRescue.TargetKsEvaluated;
+            bestCostUpdates += fallbackRescue.BestCostUpdates;
+            partitionCount += fallbackRescue.PartitionCount;
+
+            if (fallbackRescue.RescuedSelection is not null)
+            {
+                selectedSellerNames = fallbackRescue.RescuedSelection
+                    .Select(index => orderedSellers[index].SellerName)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                incumbentSource = "legacy-fallback-rescue-exact";
+            }
+        }
+
+        return new LegacyQuickSolveResult(
+            selectedSellerNames,
+            IsSelectionFullyCoveredByNames(orderedSellers, requiredByCard, selectedSellerNames),
+            new LegacyQuickSolveMetrics(
+                LowerBoundSellerCount: lowerBoundSellerCount,
+                TargetKsEvaluated: targetKsEvaluated,
+                BestCostUpdates: bestCostUpdates,
+                PartitionCount: partitionCount,
+                IncumbentSource: incumbentSource));
+    }
+
+    private static HashSet<int>? BuildGreedyUpperBoundSelection(
+        int[] requiredQuantities,
+        int[,] sellerCardQty,
+        int cardCount,
+        int sellerCount)
+    {
+        var selectedSellers = new HashSet<int>();
+        var remaining = requiredQuantities.ToArray();
+
+        while (remaining.Any(quantity => quantity > 0))
+        {
+            var bestSeller = -1;
+            var bestContribution = 0;
+
+            for (var sellerIndex = 0; sellerIndex < sellerCount; sellerIndex++)
+            {
+                if (selectedSellers.Contains(sellerIndex))
+                {
+                    continue;
+                }
+
+                var contribution = 0;
+                for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+                {
+                    contribution += Math.Min(remaining[cardIndex], sellerCardQty[sellerIndex, cardIndex]);
+                }
+
+                if (contribution > bestContribution)
+                {
+                    bestContribution = contribution;
+                    bestSeller = sellerIndex;
+                }
+            }
+
+            if (bestSeller < 0 || bestContribution == 0)
+            {
+                return null;
+            }
+
+            selectedSellers.Add(bestSeller);
+            for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+            {
+                remaining[cardIndex] = Math.Max(0, remaining[cardIndex] - sellerCardQty[bestSeller, cardIndex]);
+            }
+        }
+
+        return selectedSellers;
+    }
+
+    private static void ApplyLegacyFallbackForRemainingCards(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        HashSet<string> selectedSellerNames,
+        IReadOnlySet<int> knownUncoveredCardIndices)
+    {
+        while (true)
+        {
+            var remainingRequiredByCard = BuildRemainingRequiredByCard(
+                orderedSellers,
+                requiredByCard,
+                selectedSellerNames,
+                knownUncoveredCardIndices);
+
+            if (remainingRequiredByCard.All(quantity => quantity <= 0))
+            {
+                break;
+            }
+
+            var bestPackSeller = orderedSellers
+                .Where(seller => !selectedSellerNames.Contains(seller.SellerName) && seller.ActiveCardCount >= 2)
+                .Select(seller =>
+                {
+                    var coveredCards = 0;
+                    var coveredUnits = 0;
+                    var oneUnitCost = seller.FixedCost;
+
+                    foreach (var cardIndex in seller.ActiveCards)
+                    {
+                        var requiredQty = remainingRequiredByCard[cardIndex];
+                        if (requiredQty <= 0)
+                        {
+                            continue;
+                        }
+
+                        coveredCards++;
+                        coveredUnits += Math.Min(requiredQty, seller.QtyByCard[cardIndex]);
+                        var profile = seller.CardProfiles[cardIndex];
+                        if (profile is not null && profile.QtyUsable > 0)
+                        {
+                            oneUnitCost = AddCost(oneUnitCost, profile.PrefixCosts[1]);
+                        }
+                    }
+
+                    return new FallbackPackCandidate(
+                        seller.SellerName,
+                        coveredCards,
+                        coveredUnits,
+                        oneUnitCost,
+                        seller.OriginalOrder);
+                })
+                .OrderByDescending(candidate => candidate.CoveredCards)
+                .ThenByDescending(candidate => candidate.CoveredUnits)
+                .ThenBy(candidate => candidate.OneUnitPackCost)
+                .ThenBy(candidate => candidate.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(candidate => candidate.OriginalOrder)
+                .FirstOrDefault();
+
+            if (bestPackSeller is null || bestPackSeller.CoveredCards < 2)
+            {
+                break;
+            }
+
+            selectedSellerNames.Add(bestPackSeller.SellerName);
+        }
+
+        var remainingBeforeSingles = BuildRemainingRequiredByCard(
+            orderedSellers,
+            requiredByCard,
+            selectedSellerNames,
+            knownUncoveredCardIndices);
+
+        for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
+        {
+            if (knownUncoveredCardIndices.Contains(cardIndex) || remainingBeforeSingles[cardIndex] <= 0)
+            {
+                continue;
+            }
+
+            var remainingQty = remainingBeforeSingles[cardIndex];
+            var orderedProviders = orderedSellers
+                .Where(seller => seller.QtyByCard[cardIndex] > 0)
+                .OrderBy(seller => seller.CardProfiles[cardIndex]!.PrefixCosts[1])
+                .ThenByDescending(seller => seller.QtyByCard[cardIndex])
+                .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var seller in orderedProviders)
+            {
+                if (remainingQty <= 0)
+                {
+                    break;
+                }
+
+                selectedSellerNames.Add(seller.SellerName);
+                remainingQty -= seller.QtyByCard[cardIndex];
+            }
+        }
+    }
+
+    private static FallbackRescueResult TryRescueFallbackSelection(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlySet<string> fallbackSelection,
+        int effectiveParallelism,
+        RuntimeSettings settings)
+    {
+        var rescueCandidateNames = BuildFallbackRescueCandidateSellerNames(
+            orderedSellers,
+            requiredByCard,
+            fallbackSelection);
+        var rescueSellers = orderedSellers
+            .Where(seller => rescueCandidateNames.Contains(seller.SellerName))
+            .ToList();
+        if (rescueSellers.Count == 0)
+        {
+            return new FallbackRescueResult(null, 0, 0, 0);
+        }
+
+        var cardCount = requiredByCard.Length;
+        var rescueSellerCardQty = BuildSellerCardQtyMatrix(rescueSellers, cardCount);
+        var rescueLowerBound = CalculateLowerBoundSellerCount(
+            requiredByCard,
+            rescueSellerCardQty,
+            cardCount,
+            rescueSellers.Count);
+        var rescueUpperBound = Math.Min(settings.ExactMaxK, rescueSellers.Count);
+        if (rescueLowerBound > rescueUpperBound)
+        {
+            return new FallbackRescueResult(null, 0, 0, 0);
+        }
+
+        var searchContext = BuildSearchPrecomputationContext(rescueSellers, requiredByCard, cardCount);
+        EnsureSearchContextHasSuffixMinimumCosts(searchContext, rescueSellers, requiredByCard);
+
+        SelectionResult? best = null;
+        var targetKsEvaluated = 0;
+        var bestCostUpdates = 0;
+        var partitionCount = 0;
+
+        for (var targetSellerCount = rescueLowerBound; targetSellerCount <= rescueUpperBound; targetSellerCount++)
+        {
+            var combinationCount = CalculateCombinationCount(rescueSellers.Count, targetSellerCount);
+            if (double.IsNaN(combinationCount) || combinationCount > LegacyQuickExactCombinationLimit)
+            {
+                continue;
+            }
+
+            targetKsEvaluated++;
+            IReadOnlyList<int>? initialSelection = null;
+            var initialUpperBoundCost = InfiniteCost;
+
+            if (fallbackSelection.Count == targetSellerCount)
+            {
+                var mappedSelection = rescueSellers
+                    .Select((seller, index) => new { seller.SellerName, Index = index })
+                    .Where(item => fallbackSelection.Contains(item.SellerName))
+                    .Select(item => item.Index)
+                    .OrderBy(index => index)
+                    .ToArray();
+
+                if (mappedSelection.Length == targetSellerCount)
+                {
+                    initialSelection = mappedSelection;
+                    initialUpperBoundCost = CalculateExactCostForSelection(
+                        rescueSellers,
+                        requiredByCard,
+                        cardCount,
+                        mappedSelection);
+                }
+            }
+
+            var phaseB = FindBestSelectionForFixedK(
+                targetSellerCount,
+                requiredByCard,
+                rescueSellers,
+                searchContext,
+                effectiveParallelism,
+                initialUpperBoundCost,
+                initialSelection);
+            partitionCount += phaseB.PartitionCount;
+
+            if (phaseB.BestSelection is null || IsInfinite(phaseB.BestSelection.TotalCost))
+            {
+                continue;
+            }
+
+            if (IsBetterCandidate(phaseB.BestSelection, best))
+            {
+                best = phaseB.BestSelection;
+                bestCostUpdates++;
+            }
+        }
+
+        if (best is null)
+        {
+            return new FallbackRescueResult(null, targetKsEvaluated, bestCostUpdates, partitionCount);
+        }
+
+        var orderedIndexBySellerName = orderedSellers
+            .Select((seller, index) => new { seller.SellerName, Index = index })
+            .ToDictionary(item => item.SellerName, item => item.Index, StringComparer.OrdinalIgnoreCase);
+
+        var remappedSelection = best.SelectedOrderedSellerIndices
+            .Select(index => orderedIndexBySellerName.GetValueOrDefault(rescueSellers[index].SellerName, -1))
+            .Where(index => index >= 0)
+            .Distinct()
+            .OrderBy(index => index)
+            .ToArray();
+        if (remappedSelection.Length == 0)
+        {
+            return new FallbackRescueResult(null, targetKsEvaluated, bestCostUpdates, partitionCount);
+        }
+
+        return new FallbackRescueResult(
+            remappedSelection,
+            targetKsEvaluated,
+            bestCostUpdates,
+            partitionCount);
+    }
+
+    private static HashSet<string> BuildFallbackRescueCandidateSellerNames(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlySet<string> fallbackSelection)
+    {
+        var candidateNames = fallbackSelection.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (candidateNames.Count < LegacyFallbackRescueMaxCandidateSellers)
+        {
+            for (var cardIndex = 0; cardIndex < requiredByCard.Length; cardIndex++)
+            {
+                if (requiredByCard[cardIndex] <= 0)
+                {
+                    continue;
+                }
+
+                foreach (var seller in orderedSellers
+                    .Where(seller => seller.QtyByCard[cardIndex] > 0)
+                    .OrderBy(seller => seller.CardProfiles[cardIndex]?.PrefixCosts[1] ?? InfiniteCost)
+                    .ThenByDescending(seller => seller.QtyByCard[cardIndex])
+                    .ThenBy(seller => seller.FixedCost)
+                    .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
+                    .Take(LegacyFallbackRescueTopProvidersPerCard))
+                {
+                    candidateNames.Add(seller.SellerName);
+                }
+            }
+        }
+
+        if (candidateNames.Count < LegacyFallbackRescueMaxCandidateSellers)
+        {
+            foreach (var seller in orderedSellers
+                .OrderByDescending(seller => CoverageScore(seller, requiredByCard, requiredByCard.Length))
+                .ThenBy(seller => seller.FixedCost)
+                .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
+                .Take(LegacyFallbackRescueGlobalCandidates))
+            {
+                candidateNames.Add(seller.SellerName);
+            }
+        }
+
+        if (candidateNames.Count <= LegacyFallbackRescueMaxCandidateSellers)
+        {
+            return candidateNames;
+        }
+
+        var prioritized = orderedSellers
+            .Where(seller => candidateNames.Contains(seller.SellerName))
+            .OrderByDescending(seller => CoverageScore(seller, requiredByCard, requiredByCard.Length))
+            .ThenBy(seller => seller.CardProfiles
+                .Where(profile => profile is not null && profile.QtyUsable > 0)
+                .Select(profile => profile!.PrefixCosts[1])
+                .DefaultIfEmpty(InfiniteCost)
+                .Average())
+            .ThenBy(seller => seller.FixedCost)
+            .ThenBy(seller => seller.SellerName, StringComparer.OrdinalIgnoreCase)
+            .Take(LegacyFallbackRescueMaxCandidateSellers)
+            .Select(seller => seller.SellerName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return prioritized;
+    }
+
+    private static bool IsExactIncumbentSource(string incumbentSource)
+    {
+        if (string.IsNullOrWhiteSpace(incumbentSource))
+        {
+            return false;
+        }
+
+        return incumbentSource.Contains("exact", StringComparison.OrdinalIgnoreCase)
+            || incumbentSource.Contains("bruteforce", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static LegacyFallbackOverrideResult TryLegacyFallbackOverride(
+        PurgedScopeSnapshot snapshot,
+        int[] requiredByCard,
+        IReadOnlySet<string> currentSelection,
+        RuntimeSettings settings,
+        IReadOnlyList<CanonicalSeller> candidateSellers)
+    {
+        if (!TryCalculateScopedSelectionObjectiveCost(
+            snapshot.ScopedMarketData,
+            snapshot.FixedCostBySellerName,
+            currentSelection,
+            out var currentCost))
+        {
+            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), InfiniteCost, InfiniteCost, "current-not-full-coverage");
+        }
+
+        var allowedSellerNames = BuildFallbackRescueCandidateSellerNames(
+            candidateSellers,
+            requiredByCard,
+            currentSelection);
+        var legacySnapshot = BuildLegacySnapshot(snapshot.PurgedMarketData, requiredByCard, allowedSellerNames);
+        if (legacySnapshot.Cards.Count == 0)
+        {
+            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, "legacy-empty-snapshot");
+        }
+
+        try
+        {
+            var legacyCandidatePoolMax = Math.Min(settings.CandidatePoolMax, 45);
+            var legacyCandidatePoolMin = Math.Min(settings.CandidatePoolMin, legacyCandidatePoolMax);
+            var legacySolver = new BestSellerCalculator();
+            var legacyResult = legacySolver.Calculate(
+                legacySnapshot,
+                fixedCostBySellerName: snapshot.FixedCostBySellerName.ToDictionary(
+                    pair => pair.Key,
+                    pair => (double)pair.Value,
+                    StringComparer.OrdinalIgnoreCase),
+                solverOptions: new SolverOptions
+                {
+                    CandidateTopCheapestPerCard = settings.CandidateTopCheapestPerCard,
+                    CandidateTopEffectivePerCard = settings.CandidateTopEffectivePerCard,
+                    CandidatePoolMin = legacyCandidatePoolMin,
+                    CandidatePoolMax = legacyCandidatePoolMax,
+                    BeamWidth = Math.Min(settings.BeamWidth, 260),
+                    BeamAlpha = (double)settings.BeamAlpha,
+                    BeamBeta = (double)settings.BeamBeta,
+                    ExactMaxK = settings.ExactMaxK,
+                    EnableFinalCostRefine = settings.EnableFinalCostRefine,
+                    SolverTimeBudgetMinutes = Math.Min(settings.SolverTimeBudgetMinutes, 1)
+                });
+
+            var legacySelection = legacyResult.SelectedSellers
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (!TryCalculateScopedSelectionObjectiveCost(
+                snapshot.ScopedMarketData,
+                snapshot.FixedCostBySellerName,
+                legacySelection,
+                out var legacyCost))
+            {
+                return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, "legacy-not-full-coverage");
+            }
+
+            if (legacyCost + CostEpsilon < currentCost)
+            {
+                return new LegacyFallbackOverrideResult(true, legacySelection.ToArray(), currentCost, legacyCost, "legacy-cheaper");
+            }
+
+            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, legacyCost, "legacy-not-cheaper");
+        }
+        catch (Exception exception)
+        {
+            return new LegacyFallbackOverrideResult(false, currentSelection.ToArray(), currentCost, InfiniteCost, $"legacy-error:{exception.GetType().Name}");
+        }
+    }
+
+    private static bool TryCalculateScopedSelectionObjectiveCost(
+        IReadOnlyList<MarketCardData> scopedMarketData,
+        IReadOnlyDictionary<string, decimal> fixedCostBySellerName,
+        IReadOnlyCollection<string> selectedSellerNames,
+        out decimal totalCost)
+    {
+        totalCost = InfiniteCost;
+        if (selectedSellerNames.Count == 0)
+        {
+            return false;
+        }
+
+        var assignments = BuildAssignments(
+            scopedMarketData,
+            selectedSellerNames,
+            out var uncoveredCardKeys,
+            out var cardsTotalCost);
+        if (assignments.Count == 0 || uncoveredCardKeys.Count > 0)
+        {
+            return false;
+        }
+
+        var shippingTotal = selectedSellerNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Sum(sellerName => fixedCostBySellerName.GetValueOrDefault(sellerName, 0m));
+        totalCost = cardsTotalCost + shippingTotal;
+        return true;
+    }
+
+    private static CardMarketSnapshot BuildLegacySnapshot(
+        IReadOnlyList<MarketCardData> purgedMarketData,
+        IReadOnlyList<int> requiredByCard,
+        IReadOnlySet<string> allowedSellerNames)
+    {
+        var cards = new List<CardSellersSnapshot>(purgedMarketData.Count);
+
+        for (var cardIndex = 0; cardIndex < purgedMarketData.Count; cardIndex++)
+        {
+            var card = purgedMarketData[cardIndex];
+            var requestedQuantity = cardIndex < requiredByCard.Count
+                ? Math.Max(0, requiredByCard[cardIndex])
+                : Math.Max(0, card.Target.DesiredQuantity);
+            if (requestedQuantity <= 0)
+            {
+                continue;
+            }
+
+            var offers = card.Offers
+                .Where(offer => offer.AvailableQuantity > 0)
+                .Where(offer => allowedSellerNames.Count == 0 || allowedSellerNames.Contains(offer.SellerName))
+                .Select(offer => new CardOffer(
+                    SellerName: offer.SellerName,
+                    SellerProfileUrl: string.Empty,
+                    CardName: ResolveCardKey(card.Target),
+                    SourceUrl: offer.ProductUrl,
+                    Price: (double)offer.Price,
+                    AvailableQuantity: offer.AvailableQuantity,
+                    SellerCountry: offer.Country,
+                    Language: string.Empty,
+                    Condition: string.Empty))
+                .ToList();
+
+            var firstPrice = offers.Count == 0 ? 0d : offers.Min(offer => offer.Price);
+            var maxPrice = offers.Count == 0 ? 0d : offers.Max(offer => offer.Price);
+
+            cards.Add(new CardSellersSnapshot(
+                Request: new CardRequest(ResolveCardKey(card.Target), requestedQuantity),
+                Offers: offers,
+                FirstPrice: firstPrice,
+                MaxPrice: maxPrice));
+        }
+
+        return new CardMarketSnapshot(cards);
+    }
+
+    private static int[] BuildRemainingRequiredByCard(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyCollection<string> selectedSellerNames,
+        IReadOnlySet<int> knownUncoveredCardIndices)
+    {
+        var remaining = requiredByCard.ToArray();
+        foreach (var uncoveredCardIndex in knownUncoveredCardIndices)
+        {
+            if (uncoveredCardIndex >= 0 && uncoveredCardIndex < remaining.Length)
+            {
+                remaining[uncoveredCardIndex] = 0;
+            }
+        }
+
+        if (selectedSellerNames.Count == 0)
+        {
+            return remaining;
+        }
+
+        for (var sellerIndex = 0; sellerIndex < orderedSellers.Count; sellerIndex++)
+        {
+            var seller = orderedSellers[sellerIndex];
+            if (!selectedSellerNames.Contains(seller.SellerName))
+            {
+                continue;
+            }
+
+            foreach (var cardIndex in seller.ActiveCards)
+            {
+                remaining[cardIndex] = Math.Max(0, remaining[cardIndex] - seller.QtyByCard[cardIndex]);
+            }
+        }
+
+        return remaining;
+    }
+
+    private static AssignmentValidationResult ValidateAssignmentsAndRepairResidual(
+        IReadOnlyList<MarketCardData> marketData,
+        IReadOnlyDictionary<string, decimal> fixedCostBySellerName,
+        IReadOnlyCollection<string> selectedSellerNames,
+        IReadOnlyList<PurchaseAssignment> initialAssignments,
+        IReadOnlyCollection<string> initialUncoveredCards)
+    {
+        var effectiveSelectedSellerNames = selectedSellerNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var assignments = initialAssignments.ToList();
+        var uncoveredCardKeys = initialUncoveredCards.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (uncoveredCardKeys.Count > 0)
+        {
+            var remainingByCardKey = BuildRemainingByCardKey(marketData, assignments);
+            ApplyResidualFallback(
+                marketData,
+                fixedCostBySellerName,
+                remainingByCardKey,
+                effectiveSelectedSellerNames);
+
+            assignments = BuildAssignments(
+                marketData,
+                effectiveSelectedSellerNames,
+                out var repairedUncoveredCards,
+                out var repairedCardsTotalPrice);
+
+            return new AssignmentValidationResult(
+                effectiveSelectedSellerNames,
+                assignments,
+                repairedCardsTotalPrice,
+                repairedUncoveredCards.ToHashSet(StringComparer.OrdinalIgnoreCase),
+                effectiveSelectedSellerNames.Except(selectedSellerNames, StringComparer.OrdinalIgnoreCase).ToArray());
+        }
+
+        return new AssignmentValidationResult(
+            effectiveSelectedSellerNames,
+            assignments,
+            initialAssignments.Sum(assignment => assignment.TotalPrice),
+            uncoveredCardKeys,
+            []);
+    }
+
+    private static Dictionary<string, int> BuildRemainingByCardKey(
+        IReadOnlyList<MarketCardData> marketData,
+        IReadOnlyList<PurchaseAssignment> assignments)
+    {
+        var remainingByCardKey = marketData.ToDictionary(
+            card => ResolveCardKey(card.Target),
+            card => Math.Max(0, card.Target.DesiredQuantity),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var assignment in assignments)
+        {
+            var matchingCard = marketData.FirstOrDefault(card =>
+                string.Equals(card.Target.ProductUrl, assignment.ProductUrl, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(card.Target.CardName, assignment.CardName, StringComparison.OrdinalIgnoreCase));
+
+            if (matchingCard is null)
+            {
+                continue;
+            }
+
+            var cardKey = ResolveCardKey(matchingCard.Target);
+            remainingByCardKey[cardKey] = Math.Max(0, remainingByCardKey.GetValueOrDefault(cardKey) - assignment.Quantity);
+        }
+
+        return remainingByCardKey;
+    }
+
+    private static void ApplyResidualFallback(
+        IReadOnlyList<MarketCardData> marketData,
+        IReadOnlyDictionary<string, decimal> fixedCostBySellerName,
+        Dictionary<string, int> remainingByCardKey,
+        HashSet<string> selectedSellerNames)
+    {
+        while (remainingByCardKey.Values.Any(quantity => quantity > 0))
+        {
+            var canonicalBuild = BuildCanonicalSellersWithMetrics(
+                marketData,
+                marketData
+                    .Select(card => remainingByCardKey.GetValueOrDefault(ResolveCardKey(card.Target)))
+                    .ToArray(),
+                fixedCostBySellerName);
+
+            var bestPackSeller = canonicalBuild.Sellers
+                .Where(seller => !selectedSellerNames.Contains(seller.SellerName) && seller.ActiveCardCount >= 2)
+                .Select(seller =>
+                {
+                    var coveredCards = 0;
+                    var coveredUnits = 0;
+                    var oneUnitCost = seller.FixedCost;
+
+                    foreach (var cardIndex in seller.ActiveCards)
+                    {
+                        var requiredQty = remainingByCardKey.GetValueOrDefault(ResolveCardKey(marketData[cardIndex].Target));
+                        if (requiredQty <= 0)
+                        {
+                            continue;
+                        }
+
+                        coveredCards++;
+                        coveredUnits += Math.Min(requiredQty, seller.QtyByCard[cardIndex]);
+                        var profile = seller.CardProfiles[cardIndex];
+                        if (profile is not null && profile.QtyUsable > 0)
+                        {
+                            oneUnitCost = AddCost(oneUnitCost, profile.PrefixCosts[1]);
+                        }
+                    }
+
+                    return new FallbackPackCandidate(
+                        seller.SellerName,
+                        coveredCards,
+                        coveredUnits,
+                        oneUnitCost,
+                        seller.OriginalOrder);
+                })
+                .OrderByDescending(candidate => candidate.CoveredCards)
+                .ThenByDescending(candidate => candidate.CoveredUnits)
+                .ThenBy(candidate => candidate.OneUnitPackCost)
+                .ThenBy(candidate => candidate.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(candidate => candidate.OriginalOrder)
+                .FirstOrDefault();
+
+            if (bestPackSeller is null || bestPackSeller.CoveredCards < 2)
+            {
+                break;
+            }
+
+            selectedSellerNames.Add(bestPackSeller.SellerName);
+            foreach (var card in marketData)
+            {
+                var cardKey = ResolveCardKey(card.Target);
+                var sellerQty = card.Offers
+                    .Where(offer => string.Equals(offer.SellerName, bestPackSeller.SellerName, StringComparison.OrdinalIgnoreCase))
+                    .Sum(offer => offer.AvailableQuantity);
+                remainingByCardKey[cardKey] = Math.Max(0, remainingByCardKey.GetValueOrDefault(cardKey) - sellerQty);
+            }
+        }
+
+        foreach (var card in marketData)
+        {
+            var cardKey = ResolveCardKey(card.Target);
+            var remainingQty = remainingByCardKey.GetValueOrDefault(cardKey);
+            if (remainingQty <= 0)
+            {
+                continue;
+            }
+
+            var orderedOffers = card.Offers
+                .Where(offer => offer.AvailableQuantity > 0)
+                .Where(offer => !selectedSellerNames.Contains(offer.SellerName))
+                .OrderBy(offer => offer.Price)
+                .ThenByDescending(offer => offer.AvailableQuantity)
+                .ThenBy(offer => offer.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var offer in orderedOffers)
+            {
+                if (remainingQty <= 0)
+                {
+                    break;
+                }
+
+                selectedSellerNames.Add(offer.SellerName);
+                remainingQty -= offer.AvailableQuantity;
+            }
+
+            remainingByCardKey[cardKey] = Math.Max(0, remainingQty);
+        }
     }
 
     private static void AddUncoveredCardKeys(
@@ -1514,6 +2459,82 @@ public sealed class PurchaseOptimizer
         return totalCost;
     }
 
+    private static BruteForceSelectionResult FindBestSelectionByObjective(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount)
+    {
+        var sellerCount = orderedSellers.Count;
+        BruteForceSelectionResult? best = null;
+        var evaluated = 0;
+        var subsetCount = 1 << sellerCount;
+
+        for (var mask = 1; mask < subsetCount; mask++)
+        {
+            var selectedIndices = new List<int>(sellerCount);
+            for (var sellerIndex = 0; sellerIndex < sellerCount; sellerIndex++)
+            {
+                if ((mask & (1 << sellerIndex)) != 0)
+                {
+                    selectedIndices.Add(sellerIndex);
+                }
+            }
+
+            var objective = EvaluatePartialSelectionObjective(
+                orderedSellers,
+                requiredByCard,
+                cardCount,
+                selectedIndices);
+            evaluated++;
+
+            var candidate = new BruteForceSelectionResult(
+                objective.SelectedOrderedSellerIndices,
+                objective.UncoveredCardIndices,
+                objective.TotalCost,
+                evaluated);
+
+            if (best is null || CompareBruteForceObjective(candidate, best.Value) < 0)
+            {
+                best = candidate;
+            }
+        }
+
+        return best ?? new BruteForceSelectionResult([], [], 0m, 0);
+    }
+
+    private static int CompareBruteForceObjective(
+        BruteForceSelectionResult left,
+        BruteForceSelectionResult right)
+    {
+        var uncoveredCountComparison = left.UncoveredCardIndices.Count.CompareTo(right.UncoveredCardIndices.Count);
+        if (uncoveredCountComparison != 0)
+        {
+            return uncoveredCountComparison;
+        }
+
+        var uncoveredIndicesComparison = CompareSelectionsLexicographically(
+            left.UncoveredCardIndices,
+            right.UncoveredCardIndices);
+        if (uncoveredIndicesComparison != 0)
+        {
+            return uncoveredIndicesComparison;
+        }
+
+        if (left.TotalCost + CostEpsilon < right.TotalCost)
+        {
+            return -1;
+        }
+
+        if (right.TotalCost + CostEpsilon < left.TotalCost)
+        {
+            return 1;
+        }
+
+        return CompareSelectionsLexicographically(
+            left.SelectedOrderedSellerIndices,
+            right.SelectedOrderedSellerIndices);
+    }
+
     private static bool IsFullyCovered(int[] requiredByCard, int[] coveredByCard, int cardCount)
     {
         for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
@@ -1824,6 +2845,20 @@ public sealed class PurchaseOptimizer
         }
 
         return IsFullyCovered(requiredByCard, coveredByCard, requiredByCard.Length);
+    }
+
+    private static bool IsSelectionFullyCoveredByNames(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyCollection<string> selectedSellerNames)
+    {
+        var selectedOrderedSellerIndices = orderedSellers
+            .Select((seller, index) => new { seller.SellerName, Index = index })
+            .Where(item => selectedSellerNames.Contains(item.SellerName))
+            .Select(item => item.Index)
+            .ToList();
+
+        return IsSelectionFullyCovered(orderedSellers, requiredByCard, selectedOrderedSellerIndices);
     }
 
     private static bool IsBetterFullCoverageCandidate(
@@ -3619,6 +4654,18 @@ public sealed class PurchaseOptimizer
         int PartitionCount,
         string IncumbentSource);
 
+    private sealed record LegacyQuickSolveResult(
+        IReadOnlyCollection<string> SelectedSellerNames,
+        bool IsFullCoverage,
+        LegacyQuickSolveMetrics Metrics);
+
+    private sealed record LegacyQuickSolveMetrics(
+        int LowerBoundSellerCount,
+        int TargetKsEvaluated,
+        int BestCostUpdates,
+        int PartitionCount,
+        string IncumbentSource);
+
     private sealed record FixedKSearchResult(
         SelectionResult? BestSelection,
         int PartitionCount,
@@ -3640,6 +4687,39 @@ public sealed class PurchaseOptimizer
         IReadOnlyList<int> SelectedOrderedSellerIndices,
         IReadOnlyList<int> UncoveredCardIndices,
         decimal TotalCost);
+
+    private readonly record struct BruteForceSelectionResult(
+        IReadOnlyList<int> SelectedOrderedSellerIndices,
+        IReadOnlyList<int> UncoveredCardIndices,
+        decimal TotalCost,
+        int SelectionCountEvaluated);
+
+    private sealed record AssignmentValidationResult(
+        IReadOnlyCollection<string> SelectedSellerNames,
+        IReadOnlyList<PurchaseAssignment> Assignments,
+        decimal CardsTotalPrice,
+        IReadOnlySet<string> UncoveredCardKeys,
+        IReadOnlyCollection<string> AddedSellerNames);
+
+    private sealed record FallbackPackCandidate(
+        string SellerName,
+        int CoveredCards,
+        int CoveredUnits,
+        decimal OneUnitPackCost,
+        int OriginalOrder);
+
+    private readonly record struct FallbackRescueResult(
+        IReadOnlyList<int>? RescuedSelection,
+        int TargetKsEvaluated,
+        int BestCostUpdates,
+        int PartitionCount);
+
+    private readonly record struct LegacyFallbackOverrideResult(
+        bool Applied,
+        IReadOnlyList<string> SelectedSellerNames,
+        decimal CurrentCost,
+        decimal LegacyCost,
+        string Reason);
 
     private sealed class SearchPrecomputationContext
     {

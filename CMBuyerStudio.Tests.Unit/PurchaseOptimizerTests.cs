@@ -328,9 +328,7 @@ public sealed class PurchaseOptimizerTests
             remainingRequiredByCardKey: RemainingForScenario(scenario),
             fixedCostBySellerName: scenario.FixedCosts));
 
-        Assert.Equal(["S2"], result.SelectedSellerNames);
-        Assert.Equal(["rnd-30-p2"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal(2.10m, result.CardsTotalPrice);
+        AssertMatchesOptimalObjective(scenario, result);
     }
 
     [Fact]
@@ -345,11 +343,7 @@ public sealed class PurchaseOptimizerTests
             remainingRequiredByCardKey: RemainingForScenario(scenario),
             fixedCostBySellerName: scenario.FixedCosts));
 
-        Assert.Equal(
-            ["S2", "S3"],
-            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal(["rnd-39-p1"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal(5.28m, result.CardsTotalPrice);
+        AssertMatchesOptimalObjective(scenario, result);
     }
 
     [Fact]
@@ -364,11 +358,7 @@ public sealed class PurchaseOptimizerTests
             remainingRequiredByCardKey: RemainingForScenario(scenario),
             fixedCostBySellerName: scenario.FixedCosts));
 
-        Assert.Equal(
-            ["S4", "S5"],
-            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal(["rnd-44-p1"], result.UncoveredCardKeys.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-        Assert.Equal(7.06m, result.CardsTotalPrice);
+        AssertMatchesOptimalObjective(scenario, result);
     }
 
     [Fact]
@@ -526,6 +516,178 @@ public sealed class PurchaseOptimizerTests
         }
     }
 
+    [Fact]
+    public void Optimize_AssignmentValidation_AddsResidualSellerWhenScopedAssignmentsFallShort()
+    {
+        var sut = CreateSut();
+        var scopedCard = Card(
+            "fatal-push-url",
+            desiredQuantity: 4,
+            requestKey: "Fatal Push",
+            Offer("PrimarySeller", "fatal-push-url", price: 1m, availableQuantity: 2),
+            Offer("ResidualSeller", "fatal-push-url", price: 1.1m, availableQuantity: 2));
+        var purgedCard = Card(
+            "fatal-push-url",
+            desiredQuantity: 4,
+            requestKey: "Fatal Push",
+            Offer("PrimarySeller", "fatal-push-url", price: 1m, availableQuantity: 2));
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [scopedCard],
+            purgedMarketData: [purgedCard],
+            remainingRequiredByCardKey: Remaining("Fatal Push", 2),
+            preselectedSellerNames: ["GhostPreselected"]));
+
+        Assert.Equal(
+            ["GhostPreselected", "PrimarySeller", "ResidualSeller"],
+            result.SelectedSellerNames.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+        Assert.Empty(result.UncoveredCardKeys);
+        Assert.Equal(4.2m, result.CardsTotalPrice);
+        Assert.Equal(4, result.Assignments.Sum(assignment => assignment.Quantity));
+        Assert.Contains(result.ProfilePhases, phase => phase.Name == "Optimize.AssignmentValidation");
+        var validationPhase = Assert.Single(result.ProfilePhases, phase => phase.Name == "Optimize.AssignmentValidation");
+        Assert.Equal(1, validationPhase.Counters["residualFixupAddedSellers"]);
+        Assert.Equal(0, validationPhase.Counters["finalUncoveredCards"]);
+        Assert.Equal(4, validationPhase.Counters["targetUnits"]);
+        Assert.Equal(2, validationPhase.Counters["initialAssignedUnits"]);
+        Assert.Equal(4, validationPhase.Counters["finalAssignedUnits"]);
+        Assert.Equal("true", validationPhase.Notes["fixupApplied"]);
+    }
+
+    private static void AssertMatchesOptimalObjective(TestScenario scenario, PurchaseOptimizationResult result)
+    {
+        var optimum = FindBruteForceOptimum(scenario);
+        var actual = EvaluateSelection(scenario, result.SelectedSellerNames);
+
+        Assert.Equal(0, CompareByObjective(actual, optimum));
+    }
+
+    private static SelectionEvaluation FindBruteForceOptimum(TestScenario scenario)
+    {
+        var sellerNames = scenario.Cards
+            .SelectMany(card => card.Offers)
+            .Select(offer => offer.SellerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        SelectionEvaluation? best = null;
+        var subsetCount = 1 << sellerNames.Length;
+
+        for (var mask = 1; mask < subsetCount; mask++)
+        {
+            var selected = new List<string>(sellerNames.Length);
+            for (var sellerIndex = 0; sellerIndex < sellerNames.Length; sellerIndex++)
+            {
+                if ((mask & (1 << sellerIndex)) != 0)
+                {
+                    selected.Add(sellerNames[sellerIndex]);
+                }
+            }
+
+            var evaluation = EvaluateSelection(scenario, selected);
+            if (best is null || CompareByObjective(evaluation, best.Value) < 0)
+            {
+                best = evaluation;
+            }
+        }
+
+        return best ?? EvaluateSelection(scenario, []);
+    }
+
+    private static SelectionEvaluation EvaluateSelection(TestScenario scenario, IEnumerable<string> selectedSellerNames)
+    {
+        var selected = selectedSellerNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var selectedSet = selected.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var uncovered = new List<string>();
+        var cardCost = 0m;
+
+        foreach (var card in scenario.Cards)
+        {
+            var quantityToBuy = card.Target.DesiredQuantity;
+            var selectedOffers = card.Offers
+                .Where(offer => selectedSet.Contains(offer.SellerName))
+                .OrderBy(offer => offer.Price)
+                .ThenBy(offer => offer.SellerName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.ProductUrl, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.CardName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(offer => offer.SetName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var covered = 0;
+            foreach (var offer in selectedOffers)
+            {
+                if (covered >= quantityToBuy)
+                {
+                    break;
+                }
+
+                var take = Math.Min(offer.AvailableQuantity, quantityToBuy - covered);
+                if (take <= 0)
+                {
+                    continue;
+                }
+
+                cardCost += offer.Price * take;
+                covered += take;
+            }
+
+            if (covered < quantityToBuy)
+            {
+                uncovered.Add(card.Target.ProductUrl);
+            }
+        }
+
+        var fixedCost = selected.Sum(sellerName => scenario.FixedCosts.GetValueOrDefault(sellerName, 0m));
+
+        return new SelectionEvaluation(
+            SelectedSellerNames: selected,
+            UncoveredCardKeys: [.. uncovered.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)],
+            TotalObjectiveCost: decimal.Round(cardCost + fixedCost, 6));
+    }
+
+    private static int CompareByObjective(SelectionEvaluation left, SelectionEvaluation right)
+    {
+        var uncoveredCompare = left.UncoveredCardKeys.Count.CompareTo(right.UncoveredCardKeys.Count);
+        if (uncoveredCompare != 0)
+        {
+            return uncoveredCompare;
+        }
+
+        var uncoveredKeysCompare = CompareLexicographically(left.UncoveredCardKeys, right.UncoveredCardKeys);
+        if (uncoveredKeysCompare != 0)
+        {
+            return uncoveredKeysCompare;
+        }
+
+        var totalCompare = left.TotalObjectiveCost.CompareTo(right.TotalObjectiveCost);
+        if (totalCompare != 0)
+        {
+            return totalCompare;
+        }
+
+        return CompareLexicographically(left.SelectedSellerNames, right.SelectedSellerNames);
+    }
+
+    private static int CompareLexicographically(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        var length = Math.Min(left.Count, right.Count);
+        for (var index = 0; index < length; index++)
+        {
+            var compare = StringComparer.OrdinalIgnoreCase.Compare(left[index], right[index]);
+            if (compare != 0)
+            {
+                return compare;
+            }
+        }
+
+        return left.Count.CompareTo(right.Count);
+    }
+
     private static PurchaseOptimizer CreateSut(PurchaseOptimizerOptions? options = null)
         => new(Options.Create(options ?? new PurchaseOptimizerOptions()));
 
@@ -667,4 +829,9 @@ public sealed class PurchaseOptimizerTests
     private sealed record TestScenario(
         IReadOnlyList<MarketCardData> Cards,
         IReadOnlyDictionary<string, decimal> FixedCosts);
+
+    private readonly record struct SelectionEvaluation(
+        IReadOnlyList<string> SelectedSellerNames,
+        IReadOnlyList<string> UncoveredCardKeys,
+        decimal TotalObjectiveCost);
 }

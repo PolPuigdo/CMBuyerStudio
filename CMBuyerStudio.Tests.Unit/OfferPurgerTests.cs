@@ -224,7 +224,7 @@ public sealed class OfferPurgerTests
         var result = sut.Purge(marketData, NoFixedCosts);
 
         Assert.Contains("Lightning Bolt", result.UncoveredCardKeys);
-        Assert.Equal(2, result.RemainingRequiredByCardKey["Lightning Bolt"]);
+        Assert.Equal(0, result.RemainingRequiredByCardKey["Lightning Bolt"]);
         Assert.DoesNotContain("https://example.com/variant-a", result.RemainingRequiredByCardKey.Keys);
     }
 

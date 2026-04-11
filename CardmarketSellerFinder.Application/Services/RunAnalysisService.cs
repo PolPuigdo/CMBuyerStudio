@@ -155,6 +155,13 @@ namespace CMBuyerStudio.Application.Services
 
             var reportGeneratedAt = DateTimeOffset.Now;
             await WriteProfilesAsync(reportGeneratedAt, [euOptimizationResult.RunProfile!, localOptimizationResult.RunProfile!], cancellationToken);
+            await WriteSnapshotsAsync(
+                reportGeneratedAt,
+                [
+                    new ScopeSnapshotLog("EU", euPreparation.Snapshot),
+                    new ScopeSnapshotLog("Local", localPreparation.Snapshot)
+                ],
+                cancellationToken);
             var euReport = await _htmlReportGenerator.GenerateAsync(
                 new HtmlReportRequest
                 {
@@ -597,6 +604,33 @@ namespace CMBuyerStudio.Application.Services
                 cancellationToken);
         }
 
+        private async Task WriteSnapshotsAsync(
+            DateTimeOffset generatedAt,
+            IReadOnlyList<ScopeSnapshotLog> snapshots,
+            CancellationToken cancellationToken)
+        {
+            Directory.CreateDirectory(_appPaths.LogsPath);
+
+            foreach (var snapshot in snapshots)
+            {
+                var path = Path.Combine(
+                    _appPaths.LogsPath,
+                    $"best-seller-snapshot-{generatedAt:yyyyMMdd-HHmmss}-{snapshot.Scope.ToLowerInvariant()}.json");
+
+                await using var stream = File.Create(path);
+                await JsonSerializer.SerializeAsync(
+                    stream,
+                    new
+                    {
+                        GeneratedAt = generatedAt,
+                        Scope = snapshot.Scope,
+                        Snapshot = snapshot.Snapshot
+                    },
+                    ProfileJsonOptions,
+                    cancellationToken);
+            }
+        }
+
         private static Dictionary<string, decimal> BuildShippingByCountryCode(
         IReadOnlyDictionary<string, double> configuredCountries)
         {
@@ -622,6 +656,10 @@ namespace CMBuyerStudio.Application.Services
         private sealed record ScopePreparationResult(
             PurgedScopeSnapshot Snapshot,
             IReadOnlyList<OptimizationPhaseProfile> ProfilePhases);
+
+        private sealed record ScopeSnapshotLog(
+            string Scope,
+            PurgedScopeSnapshot Snapshot);
 
         private sealed record CompactedAnalysisResult(
             IReadOnlyList<MarketCardData> MarketData,
