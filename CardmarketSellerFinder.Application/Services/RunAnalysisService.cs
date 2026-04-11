@@ -569,8 +569,12 @@ namespace CMBuyerStudio.Application.Services
             var exactPhase = profile.Phases.FirstOrDefault(phase => phase.Name == "Optimize.ReducedExact");
             var beamPhase = profile.Phases.FirstOrDefault(phase => phase.Name == "Optimize.BeamSearch");
             var assignmentPhase = profile.Phases.FirstOrDefault(phase => phase.Name == "Optimize.BuildAssignments");
+            var lowerBoundSellerCount = exactPhase?.Counters.GetValueOrDefault("lowerBoundSellerCount") ?? 0;
+            var targetKsEvaluated = exactPhase?.Counters.GetValueOrDefault("targetKsEvaluated") ?? 0;
+            var deadlineHit = exactPhase?.Counters.GetValueOrDefault("deadlineHit") ?? 0;
+            var incumbentSource = exactPhase?.Notes.GetValueOrDefault("incumbentSource") ?? "unknown";
 
-            return $"{profile.Scope}: total {profile.TotalElapsedMilliseconds} ms | candidates {candidatePoolPhase?.Counters.GetValueOrDefault("candidateSellers") ?? 0} | beam {beamPhase?.ElapsedMilliseconds ?? 0} ms | exact {exactPhase?.ElapsedMilliseconds ?? 0} ms | assignments {assignmentPhase?.ElapsedMilliseconds ?? 0} ms";
+            return $"{profile.Scope}: total {profile.TotalElapsedMilliseconds} ms | candidates {candidatePoolPhase?.Counters.GetValueOrDefault("candidateSellers") ?? 0} | beam {beamPhase?.ElapsedMilliseconds ?? 0} ms | exact {exactPhase?.ElapsedMilliseconds ?? 0} ms (lb {lowerBoundSellerCount}, k {targetKsEvaluated}, deadline {deadlineHit}, incumbent {incumbentSource}) | assignments {assignmentPhase?.ElapsedMilliseconds ?? 0} ms";
         }
 
         private async Task WriteProfilesAsync(

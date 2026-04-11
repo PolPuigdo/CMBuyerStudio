@@ -165,23 +165,30 @@ public sealed class PurchaseOptimizer
                 ["candidateSellers"] = orderedReducedSellers.Count,
                 ["exactSelectionSize"] = reducedExactResult.SelectedOrderedSellerIndices.Count,
                 ["isFullCoverage"] = reducedExactResult.IsFullCoverage ? 1 : 0,
-                ["parallelism"] = effectiveParallelism
+                ["parallelism"] = effectiveParallelism,
+                ["lowerBoundSellerCount"] = reducedExactResult.Metrics.LowerBoundSellerCount,
+                ["targetKsEvaluated"] = reducedExactResult.Metrics.TargetKsEvaluated,
+                ["deadlineHit"] = reducedExactResult.Metrics.DeadlineHit ? 1 : 0,
+                ["bestCostUpdates"] = reducedExactResult.Metrics.BestCostUpdates,
+                ["partitionCount"] = reducedExactResult.Metrics.PartitionCount
             },
             Notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["exactMaxK"] = settings.ExactMaxK.ToString(),
-                ["solverTimeBudgetMinutes"] = settings.SolverTimeBudgetMinutes.ToString()
+                ["solverTimeBudgetMinutes"] = settings.SolverTimeBudgetMinutes.ToString(),
+                ["incumbentSource"] = reducedExactResult.Metrics.IncumbentSource
             }
         });
 
         HashSet<string> activeSelection;
         if (reducedExactResult.IsFullCoverage || beamResult.IsFullCoverage)
         {
+            var usedBeamFallback = !reducedExactResult.IsFullCoverage && beamResult.IsFullCoverage;
             activeSelection = reducedExactResult.SelectedOrderedSellerIndices
                 .Select(index => orderedReducedSellers[index].SellerName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            if (!reducedExactResult.IsFullCoverage && beamResult.IsFullCoverage)
+            if (usedBeamFallback)
             {
                 activeSelection = beamResult.SelectedOrderedSellerIndices
                     .Select(index => orderedReducedSellers[index].SellerName)
@@ -189,15 +196,17 @@ public sealed class PurchaseOptimizer
             }
 
             if (settings.EnableFinalCostRefine
+                && usedBeamFallback
                 && activeSelection.Count > 0
                 && activeSelection.Count <= settings.ExactMaxK)
             {
                 var refineStopwatch = Stopwatch.StartNew();
-                activeSelection = RefineSelectionForFixedSellerCountOnCanonical(
+                activeSelection = RefineSelectionForFixedSellerCountOnOrderedCanonical(
                     orderedReducedSellers,
                     activeRequiredByCard,
                     activeSelection,
-                    effectiveParallelism);
+                    effectiveParallelism,
+                    reducedExactResult.SearchContext);
                 refineStopwatch.Stop();
                 profilePhases.Add(new OptimizationPhaseProfile
                 {
@@ -206,7 +215,27 @@ public sealed class PurchaseOptimizer
                     Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
                     {
                         ["selectedSellers"] = activeSelection.Count,
-                        ["parallelism"] = effectiveParallelism
+                        ["parallelism"] = effectiveParallelism,
+                        ["reusedExactContext"] = reducedExactResult.SearchContext is null ? 0 : 1
+                    }
+                });
+            }
+
+            if (activeSelection.Count > 1)
+            {
+                var pruneStopwatch = Stopwatch.StartNew();
+                activeSelection = PruneRedundantFullCoverageSelection(
+                    orderedReducedSellers,
+                    activeRequiredByCard,
+                    activeSelection);
+                pruneStopwatch.Stop();
+                profilePhases.Add(new OptimizationPhaseProfile
+                {
+                    Name = "Optimize.FullCoveragePrune",
+                    ElapsedMilliseconds = pruneStopwatch.ElapsedMilliseconds,
+                    Counters = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["selectedSellers"] = activeSelection.Count
                     }
                 });
             }
@@ -416,14 +445,41 @@ public sealed class PurchaseOptimizer
         }
 
         var orderedSellers = OrderSellersForSearch(candidateSellers, requiredByCard, cardCount).ToList();
+        return RefineSelectionForFixedSellerCountOnOrderedCanonical(
+            orderedSellers,
+            requiredByCard,
+            selectedSellerNames,
+            effectiveParallelism);
+    }
+
+    private static HashSet<string> RefineSelectionForFixedSellerCountOnOrderedCanonical(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyCollection<string> selectedSellerNames,
+        int effectiveParallelism,
+        SearchPrecomputationContext? searchContext = null)
+    {
+        var targetSellerCount = selectedSellerNames.Count;
+        if (targetSellerCount <= 0)
+        {
+            return [];
+        }
+
+        var cardCount = requiredByCard.Length;
+        if (requiredByCard.Sum() <= 0)
+        {
+            return selectedSellerNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
         if (orderedSellers.Count < targetSellerCount)
         {
             return selectedSellerNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
-        var sellerCardQty = BuildSellerCardQtyMatrix(orderedSellers, cardCount);
-        var suffixCoverage = BuildSuffixCoverageMatrix(sellerCardQty, orderedSellers.Count, cardCount);
-        var suffixMinCosts = BuildSuffixMinimumCosts(orderedSellers, requiredByCard, orderedSellers.Count, cardCount);
+        var effectiveSearchContext = searchContext is not null && searchContext.SellerCount == orderedSellers.Count && searchContext.CardCount == cardCount
+            ? searchContext
+            : BuildSearchPrecomputationContext(orderedSellers, requiredByCard, cardCount);
+        EnsureSearchContextHasSuffixMinimumCosts(effectiveSearchContext, orderedSellers, requiredByCard);
 
         var initialSelection = orderedSellers
             .Select((seller, index) => new { seller.SellerName, Index = index })
@@ -447,14 +503,10 @@ public sealed class PurchaseOptimizer
             targetSellerCount,
             requiredByCard,
             orderedSellers,
-            sellerCardQty,
-            suffixCoverage,
-            suffixMinCosts,
-            orderedSellers.Count,
-            cardCount,
+            effectiveSearchContext,
             effectiveParallelism,
             initialUpperBoundCost,
-            initialSelection);
+            initialSelection).BestSelection;
 
         if (bestSelection is null || IsInfinite(bestSelection.TotalCost))
         {
@@ -499,6 +551,44 @@ public sealed class PurchaseOptimizer
         }
 
         return suffix;
+    }
+
+    private static SearchPrecomputationContext BuildSearchPrecomputationContext(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        int cardCount)
+    {
+        var sellerCardQty = BuildSellerCardQtyMatrix(orderedSellers, cardCount);
+        var suffixCoverage = BuildSuffixCoverageMatrix(sellerCardQty, orderedSellers.Count, cardCount);
+        var fixedCostLowerBounds = BuildFixedCostLowerBounds(orderedSellers);
+
+        return new SearchPrecomputationContext(
+            sellerCardQty,
+            suffixCoverage,
+            fixedCostLowerBounds,
+            orderedSellers.Count,
+            cardCount);
+    }
+
+    private static void EnsureSearchContextHasSuffixMinimumCosts(
+        SearchPrecomputationContext searchContext,
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard)
+    {
+        if (searchContext.SuffixMinCosts is not null)
+        {
+            return;
+        }
+
+        searchContext.SuffixMinCosts = BuildSuffixMinimumCosts(
+            orderedSellers,
+            requiredByCard,
+            searchContext.SellerCount,
+            searchContext.CardCount);
+        searchContext.MinimumCardCostLowerBound = CalculateMinimumCardCostLowerBound(
+            searchContext.SuffixMinCosts,
+            requiredByCard,
+            searchContext.CardCount);
     }
 
     private static decimal[,,] BuildSuffixMinimumCosts(
@@ -563,6 +653,69 @@ public sealed class PurchaseOptimizer
         }
 
         return suffixMinCosts;
+    }
+
+    private static decimal[] BuildFixedCostLowerBounds(
+        IReadOnlyList<CanonicalSeller> orderedSellers)
+    {
+        var orderedFixedCosts = orderedSellers
+            .Select(seller => seller.FixedCost)
+            .OrderBy(cost => cost)
+            .ToArray();
+        var lowerBounds = new decimal[orderedFixedCosts.Length + 1];
+
+        for (var sellerCount = 1; sellerCount <= orderedFixedCosts.Length; sellerCount++)
+        {
+            lowerBounds[sellerCount] = AddCost(lowerBounds[sellerCount - 1], orderedFixedCosts[sellerCount - 1]);
+        }
+
+        return lowerBounds;
+    }
+
+    private static decimal CalculateMinimumCardCostLowerBound(
+        decimal[,,] suffixMinCosts,
+        int[] requiredByCard,
+        int cardCount)
+    {
+        var totalLowerBound = 0m;
+
+        for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
+        {
+            var requiredQty = requiredByCard[cardIndex];
+            if (requiredQty <= 0)
+            {
+                continue;
+            }
+
+            var bound = suffixMinCosts[0, cardIndex, requiredQty];
+            if (IsInfinite(bound))
+            {
+                return InfiniteCost;
+            }
+
+            totalLowerBound = AddCost(totalLowerBound, bound);
+        }
+
+        return totalLowerBound;
+    }
+
+    private static decimal CalculateLowerBoundForTargetSellerCount(
+        SearchPrecomputationContext searchContext,
+        int targetSellerCount)
+    {
+        if (targetSellerCount < 0 || targetSellerCount >= searchContext.FixedCostLowerBoundsBySellerCount.Length)
+        {
+            return InfiniteCost;
+        }
+
+        if (IsInfinite(searchContext.MinimumCardCostLowerBound))
+        {
+            return InfiniteCost;
+        }
+
+        return AddCost(
+            searchContext.MinimumCardCostLowerBound,
+            searchContext.FixedCostLowerBoundsBySellerCount[targetSellerCount]);
     }
 
     private static List<int> FindImpossibleCardIndices(
@@ -641,23 +794,29 @@ public sealed class PurchaseOptimizer
         return lowerBound;
     }
 
-    private static SelectionResult? FindBestSelectionForFixedK(
+    private static FixedKSearchResult FindBestSelectionForFixedK(
         int targetSellerCount,
         int[] requiredByCard,
         IReadOnlyList<CanonicalSeller> orderedSellers,
-        int[,] sellerCardQty,
-        int[,] suffixCoverage,
-        decimal[,,] suffixMinCosts,
-        int sellerCount,
-        int cardCount,
+        SearchPrecomputationContext searchContext,
         int effectiveParallelism,
         decimal initialUpperBoundCost,
         IReadOnlyList<int>? initialSelection)
     {
+        var sellerCount = searchContext.SellerCount;
+        var cardCount = searchContext.CardCount;
+
         if (targetSellerCount < 0 || targetSellerCount > sellerCount)
         {
-            return null;
+            return new FixedKSearchResult(null, 0, 0);
         }
+
+        var suffixMinCosts = searchContext.SuffixMinCosts
+            ?? throw new InvalidOperationException("The exact-search context must include suffix minimum costs.");
+        var initialBest = initialSelection is null || IsInfinite(initialUpperBoundCost)
+            ? null
+            : new SelectionResult(initialSelection.ToArray(), initialUpperBoundCost);
+        var sharedIncumbent = new SharedSearchIncumbent(initialBest);
 
         if (targetSellerCount == 0)
         {
@@ -665,18 +824,19 @@ public sealed class PurchaseOptimizer
                 targetSellerCount,
                 requiredByCard,
                 orderedSellers,
-                sellerCardQty,
-                suffixCoverage,
+                searchContext.SellerCardQty,
+                searchContext.SuffixCoverage,
                 suffixMinCosts,
                 sellerCount,
                 cardCount,
                 Array.Empty<int>(),
                 0,
                 initialUpperBoundCost,
-                initialSelection);
+                initialSelection,
+                sharedIncumbent);
 
             state.Search();
-            return state.BestResult;
+            return new FixedKSearchResult(sharedIncumbent.Snapshot, 1, sharedIncumbent.UpdateCount);
         }
 
         if (effectiveParallelism <= 1 || sellerCount - targetSellerCount + 1 <= 1)
@@ -685,61 +845,156 @@ public sealed class PurchaseOptimizer
                 targetSellerCount,
                 requiredByCard,
                 orderedSellers,
-                sellerCardQty,
-                suffixCoverage,
+                searchContext.SellerCardQty,
+                searchContext.SuffixCoverage,
                 suffixMinCosts,
                 sellerCount,
                 cardCount,
                 Array.Empty<int>(),
                 0,
                 initialUpperBoundCost,
-                initialSelection);
+                initialSelection,
+                sharedIncumbent);
 
             state.Search();
-            return state.BestResult;
+            return new FixedKSearchResult(sharedIncumbent.Snapshot, 1, sharedIncumbent.UpdateCount);
         }
 
-        var partitionFirstSellerIndices = Enumerable.Range(0, sellerCount - targetSellerCount + 1).ToArray();
-        var sync = new object();
-        SelectionResult? bestResult = initialSelection is null || IsInfinite(initialUpperBoundCost)
-            ? null
-            : new SelectionResult(initialSelection.ToArray(), initialUpperBoundCost);
+        var partitions = BuildWeightedParallelPartitions(
+            sellerCount,
+            targetSellerCount,
+            effectiveParallelism);
 
         Parallel.ForEach(
-            partitionFirstSellerIndices,
+            partitions,
             new ParallelOptions
             {
                 MaxDegreeOfParallelism = effectiveParallelism
             },
-            firstSellerIndex =>
+            partition =>
             {
-                var initialSelected = new[] { firstSellerIndex };
-                var state = new CostSearchState(
-                    targetSellerCount,
-                    requiredByCard,
-                    orderedSellers,
-                    sellerCardQty,
-                    suffixCoverage,
-                    suffixMinCosts,
-                    sellerCount,
-                    cardCount,
-                    initialSelected,
-                    firstSellerIndex + 1,
-                    initialUpperBoundCost,
-                    initialSelection);
-
-                state.Search();
-
-                lock (sync)
+                for (var firstSellerIndex = partition.StartFirstSellerIndex; firstSellerIndex < partition.EndFirstSellerIndexExclusive; firstSellerIndex++)
                 {
-                    if (state.BestResult is not null && IsBetterCandidate(state.BestResult, bestResult))
-                    {
-                        bestResult = state.BestResult;
-                    }
+                    var initialSelected = new[] { firstSellerIndex };
+                    var state = new CostSearchState(
+                        targetSellerCount,
+                        requiredByCard,
+                        orderedSellers,
+                        searchContext.SellerCardQty,
+                        searchContext.SuffixCoverage,
+                        suffixMinCosts,
+                        sellerCount,
+                        cardCount,
+                        initialSelected,
+                        firstSellerIndex + 1,
+                        initialUpperBoundCost,
+                        initialSelection,
+                        sharedIncumbent);
+
+                    state.Search();
                 }
             });
 
-        return bestResult;
+        return new FixedKSearchResult(sharedIncumbent.Snapshot, partitions.Count, sharedIncumbent.UpdateCount);
+    }
+
+    private static List<ParallelSearchPartition> BuildWeightedParallelPartitions(
+        int sellerCount,
+        int targetSellerCount,
+        int effectiveParallelism)
+    {
+        var partitionableFirstSellerCount = sellerCount - targetSellerCount + 1;
+        if (partitionableFirstSellerCount <= 0)
+        {
+            return [];
+        }
+
+        if (partitionableFirstSellerCount == 1)
+        {
+            return [new ParallelSearchPartition(0, 1, 1d)];
+        }
+
+        var targetRemaining = targetSellerCount - 1;
+        var firstSellerWorkItems = new List<(int FirstSellerIndex, double Work)>(partitionableFirstSellerCount);
+        var totalWork = 0d;
+
+        for (var firstSellerIndex = 0; firstSellerIndex < partitionableFirstSellerCount; firstSellerIndex++)
+        {
+            var work = targetRemaining <= 0
+                ? 1d
+                : CalculateCombinationCount(sellerCount - firstSellerIndex - 1, targetRemaining);
+            if (double.IsNaN(work) || work <= 0d)
+            {
+                work = 1d;
+            }
+
+            firstSellerWorkItems.Add((firstSellerIndex, work));
+            totalWork += work;
+        }
+
+        if (totalWork <= 0d || double.IsNaN(totalWork))
+        {
+            return [new ParallelSearchPartition(0, partitionableFirstSellerCount, partitionableFirstSellerCount)];
+        }
+
+        var targetPartitionCount = Math.Min(
+            partitionableFirstSellerCount,
+            Math.Max(1, effectiveParallelism * 2));
+        var targetWorkPerPartition = totalWork / targetPartitionCount;
+        var partitions = new List<ParallelSearchPartition>(targetPartitionCount);
+        var currentStart = firstSellerWorkItems[0].FirstSellerIndex;
+        var currentWork = 0d;
+
+        for (var itemIndex = 0; itemIndex < firstSellerWorkItems.Count; itemIndex++)
+        {
+            var item = firstSellerWorkItems[itemIndex];
+            currentWork += item.Work;
+            var isLastItem = itemIndex == firstSellerWorkItems.Count - 1;
+            var shouldClosePartition = isLastItem
+                || (currentWork >= targetWorkPerPartition && partitions.Count + 1 < targetPartitionCount);
+
+            if (!shouldClosePartition)
+            {
+                continue;
+            }
+
+            partitions.Add(new ParallelSearchPartition(
+                currentStart,
+                item.FirstSellerIndex + 1,
+                currentWork));
+
+            if (!isLastItem)
+            {
+                currentStart = firstSellerWorkItems[itemIndex + 1].FirstSellerIndex;
+                currentWork = 0d;
+            }
+        }
+
+        return partitions;
+    }
+
+    private static double CalculateCombinationCount(int n, int r)
+    {
+        if (r < 0 || r > n)
+        {
+            return 0d;
+        }
+
+        if (r == 0 || r == n)
+        {
+            return 1d;
+        }
+
+        var k = Math.Min(r, n - r);
+        var result = 1d;
+
+        for (var index = 1; index <= k; index++)
+        {
+            result *= n - (k - index);
+            result /= index;
+        }
+
+        return result;
     }
 
     private static decimal CalculateExactCostForSelection(
@@ -1476,6 +1731,128 @@ public sealed class PurchaseOptimizer
             current.SelectedOrderedSellerIndices) < 0;
     }
 
+    private static HashSet<string> PruneRedundantFullCoverageSelection(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyCollection<string> selectedSellerNames)
+    {
+        var selectedIndices = orderedSellers
+            .Select((seller, index) => new { seller.SellerName, Index = index })
+            .Where(item => selectedSellerNames.Contains(item.SellerName))
+            .Select(item => item.Index)
+            .OrderBy(index => index)
+            .ToList();
+
+        if (selectedIndices.Count <= 1)
+        {
+            return selectedSellerNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var currentBest = new SelectionResult(
+            selectedIndices,
+            CalculateExactCostForSelection(
+                orderedSellers,
+                requiredByCard,
+                requiredByCard.Length,
+                selectedIndices));
+
+        while (true)
+        {
+            SelectionResult? bestPruned = null;
+
+            for (var selectedOffset = 0; selectedOffset < currentBest.SelectedOrderedSellerIndices.Count; selectedOffset++)
+            {
+                var candidateIndices = currentBest.SelectedOrderedSellerIndices
+                    .Where((_, index) => index != selectedOffset)
+                    .ToList();
+
+                if (candidateIndices.Count == 0
+                    || !IsSelectionFullyCovered(orderedSellers, requiredByCard, candidateIndices))
+                {
+                    continue;
+                }
+
+                var candidateCost = CalculateExactCostForSelection(
+                    orderedSellers,
+                    requiredByCard,
+                    requiredByCard.Length,
+                    candidateIndices);
+                if (IsInfinite(candidateCost))
+                {
+                    continue;
+                }
+
+                var candidate = new SelectionResult(candidateIndices, candidateCost);
+                if (!IsBetterFullCoverageCandidate(candidate, currentBest, orderedSellers))
+                {
+                    continue;
+                }
+
+                if (bestPruned is null || IsBetterFullCoverageCandidate(candidate, bestPruned, orderedSellers))
+                {
+                    bestPruned = candidate;
+                }
+            }
+
+            if (bestPruned is null)
+            {
+                break;
+            }
+
+            currentBest = bestPruned;
+        }
+
+        return currentBest.SelectedOrderedSellerIndices
+            .Select(index => orderedSellers[index].SellerName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSelectionFullyCovered(
+        IReadOnlyList<CanonicalSeller> orderedSellers,
+        int[] requiredByCard,
+        IReadOnlyList<int> selectedOrderedSellerIndices)
+    {
+        var coveredByCard = new int[requiredByCard.Length];
+
+        for (var selectedOffset = 0; selectedOffset < selectedOrderedSellerIndices.Count; selectedOffset++)
+        {
+            var seller = orderedSellers[selectedOrderedSellerIndices[selectedOffset]];
+            foreach (var cardIndex in seller.ActiveCards)
+            {
+                coveredByCard[cardIndex] += seller.QtyByCard[cardIndex];
+            }
+        }
+
+        return IsFullyCovered(requiredByCard, coveredByCard, requiredByCard.Length);
+    }
+
+    private static bool IsBetterFullCoverageCandidate(
+        SelectionResult candidate,
+        SelectionResult currentBest,
+        IReadOnlyList<CanonicalSeller> orderedSellers)
+    {
+        if (candidate.TotalCost + CostEpsilon < currentBest.TotalCost)
+        {
+            return true;
+        }
+
+        if (currentBest.TotalCost + CostEpsilon < candidate.TotalCost)
+        {
+            return false;
+        }
+
+        var candidateSellerNames = candidate.SelectedOrderedSellerIndices
+            .Select(index => orderedSellers[index].SellerName)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var currentSellerNames = currentBest.SelectedOrderedSellerIndices
+            .Select(index => orderedSellers[index].SellerName)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return CompareSelectionsLexicographically(candidateSellerNames, currentSellerNames) < 0;
+    }
+
     private static List<PurchaseAssignment> BuildAssignments(
         IReadOnlyList<MarketCardData> marketData,
         IReadOnlyCollection<string> selectedSellerNames,
@@ -1600,6 +1977,23 @@ public sealed class PurchaseOptimizer
         }
 
         return leftCount.CompareTo(right.Count);
+    }
+
+    private static int CompareSelectionsLexicographically(
+        IReadOnlyList<string> left,
+        IReadOnlyList<string> right)
+    {
+        var count = Math.Min(left.Count, right.Count);
+        for (var index = 0; index < count; index++)
+        {
+            var compare = StringComparer.OrdinalIgnoreCase.Compare(left[index], right[index]);
+            if (compare != 0)
+            {
+                return compare;
+            }
+        }
+
+        return left.Count.CompareTo(right.Count);
     }
 
     private static decimal AddCost(decimal left, decimal right)
@@ -2625,21 +3019,44 @@ public sealed class PurchaseOptimizer
         {
             if (_orderedSellers.Count == 0)
             {
-                return new ReducedExactSolveResult(false, [], InfiniteCost);
+                return new ReducedExactSolveResult(
+                    false,
+                    [],
+                    InfiniteCost,
+                    null,
+                    new ExactSearchMetrics(
+                        LowerBoundSellerCount: 0,
+                        TargetKsEvaluated: 0,
+                        DeadlineHit: false,
+                        BestCostUpdates: 0,
+                        PartitionCount: 0,
+                        IncumbentSource: "none"));
             }
 
             var sellerCount = _orderedSellers.Count;
-            var sellerCardQty = BuildSellerCardQtyMatrix(_orderedSellers, _cardCount);
-            var suffixCoverage = BuildSuffixCoverageMatrix(sellerCardQty, sellerCount, _cardCount);
-            var suffixMinCosts = BuildSuffixMinimumCosts(_orderedSellers, _requiredByCard, sellerCount, _cardCount);
+            var searchContext = BuildSearchPrecomputationContext(_orderedSellers, _requiredByCard, _cardCount);
+            var sellerCardQty = searchContext.SellerCardQty;
 
             var impossibleCardIndices = FindImpossibleCardIndices(_requiredByCard, sellerCardQty, sellerCount);
+            var incumbentSource = incumbent.IsFullCoverage
+                ? "beam"
+                : incumbent.SelectedOrderedSellerIndices.Count > 0
+                    ? "beam-partial"
+                    : "none";
             if (impossibleCardIndices.Count > 0)
             {
                 return new ReducedExactSolveResult(
                     incumbent.IsFullCoverage,
                     incumbent.SelectedOrderedSellerIndices,
-                    incumbent.TotalCost);
+                    incumbent.TotalCost,
+                    searchContext,
+                    new ExactSearchMetrics(
+                        LowerBoundSellerCount: 0,
+                        TargetKsEvaluated: 0,
+                        DeadlineHit: false,
+                        BestCostUpdates: 0,
+                        PartitionCount: 0,
+                        IncumbentSource: incumbentSource));
             }
 
             var lowerBoundSellerCount = CalculateLowerBoundSellerCount(
@@ -2662,18 +3079,55 @@ public sealed class PurchaseOptimizer
             if (lowerBoundSellerCount > maxK)
             {
                 return bestSelection is null
-                    ? new ReducedExactSolveResult(false, incumbent.SelectedOrderedSellerIndices, incumbent.TotalCost)
-                    : new ReducedExactSolveResult(true, bestSelection.SelectedOrderedSellerIndices, bestSelection.TotalCost);
+                    ? new ReducedExactSolveResult(
+                        false,
+                        incumbent.SelectedOrderedSellerIndices,
+                        incumbent.TotalCost,
+                        searchContext,
+                        new ExactSearchMetrics(
+                            lowerBoundSellerCount,
+                            TargetKsEvaluated: 0,
+                            DeadlineHit: false,
+                            BestCostUpdates: 0,
+                            PartitionCount: 0,
+                            IncumbentSource: incumbentSource))
+                    : new ReducedExactSolveResult(
+                        true,
+                        bestSelection.SelectedOrderedSellerIndices,
+                        bestSelection.TotalCost,
+                        searchContext,
+                        new ExactSearchMetrics(
+                            lowerBoundSellerCount,
+                            TargetKsEvaluated: 0,
+                            DeadlineHit: false,
+                            BestCostUpdates: 0,
+                            PartitionCount: 0,
+                            IncumbentSource: incumbentSource));
             }
 
+            EnsureSearchContextHasSuffixMinimumCosts(searchContext, _orderedSellers, _requiredByCard);
             var deadline = TimeSpan.FromMinutes(_settings.SolverTimeBudgetMinutes);
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var targetKsEvaluated = 0;
+            var deadlineHit = false;
+            var bestCostUpdates = 0;
+            var partitionCount = 0;
 
             for (var targetSellerCount = lowerBoundSellerCount; targetSellerCount <= maxK; targetSellerCount++)
             {
                 if (stopwatch.Elapsed >= deadline)
                 {
+                    deadlineHit = true;
                     break;
+                }
+
+                if (bestSelection is not null)
+                {
+                    var targetLowerBound = CalculateLowerBoundForTargetSellerCount(searchContext, targetSellerCount);
+                    if (!IsInfinite(targetLowerBound) && targetLowerBound > bestSelection.TotalCost + CostEpsilon)
+                    {
+                        break;
+                    }
                 }
 
                 var initialSelection = bestSelection is not null && bestSelection.SelectedOrderedSellerIndices.Count == targetSellerCount
@@ -2681,18 +3135,19 @@ public sealed class PurchaseOptimizer
                     : null;
                 var initialUpperBoundCost = bestSelection?.TotalCost ?? InfiniteCost;
 
-                var candidate = FindBestSelectionForFixedK(
+                var searchResult = FindBestSelectionForFixedK(
                     targetSellerCount,
                     _requiredByCard,
                     _orderedSellers,
-                    sellerCardQty,
-                    suffixCoverage,
-                    suffixMinCosts,
-                    sellerCount,
-                    _cardCount,
+                    searchContext,
                     _effectiveParallelism,
                     initialUpperBoundCost,
                     initialSelection);
+                targetKsEvaluated++;
+                partitionCount += searchResult.PartitionCount;
+                bestCostUpdates += searchResult.IncumbentUpdates;
+
+                var candidate = searchResult.BestSelection;
 
                 if (candidate is null || IsInfinite(candidate.TotalCost))
                 {
@@ -2702,6 +3157,7 @@ public sealed class PurchaseOptimizer
                 if (IsBetterCandidate(candidate, bestSelection))
                 {
                     bestSelection = candidate;
+                    incumbentSource = "exact";
                 }
             }
 
@@ -2710,13 +3166,29 @@ public sealed class PurchaseOptimizer
                 return new ReducedExactSolveResult(
                     IsFullCoverage: true,
                     SelectedOrderedSellerIndices: bestSelection.SelectedOrderedSellerIndices,
-                    TotalCost: bestSelection.TotalCost);
+                    TotalCost: bestSelection.TotalCost,
+                    SearchContext: searchContext,
+                    Metrics: new ExactSearchMetrics(
+                        lowerBoundSellerCount,
+                        targetKsEvaluated,
+                        deadlineHit,
+                        bestCostUpdates,
+                        partitionCount,
+                        incumbentSource));
             }
 
             return new ReducedExactSolveResult(
                 IsFullCoverage: incumbent.IsFullCoverage,
                 SelectedOrderedSellerIndices: incumbent.SelectedOrderedSellerIndices,
-                TotalCost: incumbent.TotalCost);
+                TotalCost: incumbent.TotalCost,
+                SearchContext: searchContext,
+                Metrics: new ExactSearchMetrics(
+                    lowerBoundSellerCount,
+                    targetKsEvaluated,
+                    deadlineHit,
+                    bestCostUpdates,
+                    partitionCount,
+                    incumbentSource));
         }
     }
 
@@ -2738,6 +3210,7 @@ public sealed class PurchaseOptimizer
         private readonly int[] _touchedCountsByDepth;
         private readonly int _startSellerPosition;
         private readonly int _initialSelectedCount;
+        private readonly SharedSearchIncumbent _sharedIncumbent;
         private decimal _bestCost;
         private decimal _selectedFixedCost;
         private IReadOnlyList<int>? _bestSelection;
@@ -2754,7 +3227,8 @@ public sealed class PurchaseOptimizer
             IReadOnlyList<int> initialSelectedOrderedSellerIndices,
             int startSellerPosition,
             decimal initialBestCost,
-            IReadOnlyList<int>? initialBestSelection)
+            IReadOnlyList<int>? initialBestSelection,
+            SharedSearchIncumbent sharedIncumbent)
         {
             _targetSellerCount = targetSellerCount;
             _requiredByCard = requiredByCard;
@@ -2773,6 +3247,7 @@ public sealed class PurchaseOptimizer
             _startSellerPosition = Math.Clamp(startSellerPosition, 0, sellerCount);
             _bestCost = initialBestCost;
             _bestSelection = initialBestSelection is null ? null : initialBestSelection.ToArray();
+            _sharedIncumbent = sharedIncumbent;
 
             for (var cardIndex = 0; cardIndex < cardCount; cardIndex++)
             {
@@ -2838,8 +3313,7 @@ public sealed class PurchaseOptimizer
                     var candidateCost = CalculateCurrentSelectionCost();
                     if (!IsInfinite(candidateCost) && IsBetterCandidate(candidateCost))
                     {
-                        _bestCost = candidateCost;
-                        _bestSelection = _selectedIndices.Take(_targetSellerCount).ToArray();
+                        UpdateBestSelection(candidateCost);
                     }
                 }
 
@@ -2853,6 +3327,12 @@ public sealed class PurchaseOptimizer
 
             var lowerBound = CalculateLowerBoundCost(sellerPosition);
             if (!IsInfinite(_bestCost) && lowerBound >= _bestCost - CostEpsilon)
+            {
+                return;
+            }
+
+            var bestCostHint = _sharedIncumbent.BestCostHint;
+            if (!IsInfinite(bestCostHint) && lowerBound > bestCostHint + CostEpsilon)
             {
                 return;
             }
@@ -3097,6 +3577,14 @@ public sealed class PurchaseOptimizer
 
             return CompareSelectionsLexicographically(_selectedIndices, _targetSellerCount, _bestSelection) < 0;
         }
+
+        private void UpdateBestSelection(decimal candidateCost)
+        {
+            var candidateSelection = _selectedIndices.Take(_targetSellerCount).ToArray();
+            _bestCost = candidateCost;
+            _bestSelection = candidateSelection;
+            _sharedIncumbent.TryUpdate(new SelectionResult(candidateSelection, candidateCost));
+        }
     }
 
     private sealed record RuntimeSettings(
@@ -3119,7 +3607,22 @@ public sealed class PurchaseOptimizer
     private sealed record ReducedExactSolveResult(
         bool IsFullCoverage,
         IReadOnlyList<int> SelectedOrderedSellerIndices,
-        decimal TotalCost);
+        decimal TotalCost,
+        SearchPrecomputationContext? SearchContext,
+        ExactSearchMetrics Metrics);
+
+    private sealed record ExactSearchMetrics(
+        int LowerBoundSellerCount,
+        int TargetKsEvaluated,
+        bool DeadlineHit,
+        int BestCostUpdates,
+        int PartitionCount,
+        string IncumbentSource);
+
+    private sealed record FixedKSearchResult(
+        SelectionResult? BestSelection,
+        int PartitionCount,
+        int IncumbentUpdates);
 
     private sealed record SelectionResult(
         IReadOnlyList<int> SelectedOrderedSellerIndices,
@@ -3137,6 +3640,110 @@ public sealed class PurchaseOptimizer
         IReadOnlyList<int> SelectedOrderedSellerIndices,
         IReadOnlyList<int> UncoveredCardIndices,
         decimal TotalCost);
+
+    private sealed class SearchPrecomputationContext
+    {
+        public SearchPrecomputationContext(
+            int[,] sellerCardQty,
+            int[,] suffixCoverage,
+            decimal[] fixedCostLowerBoundsBySellerCount,
+            int sellerCount,
+            int cardCount)
+        {
+            SellerCardQty = sellerCardQty;
+            SuffixCoverage = suffixCoverage;
+            FixedCostLowerBoundsBySellerCount = fixedCostLowerBoundsBySellerCount;
+            SellerCount = sellerCount;
+            CardCount = cardCount;
+            MinimumCardCostLowerBound = InfiniteCost;
+        }
+
+        public int[,] SellerCardQty { get; }
+
+        public int[,] SuffixCoverage { get; }
+
+        public decimal[,,]? SuffixMinCosts { get; set; }
+
+        public decimal[] FixedCostLowerBoundsBySellerCount { get; }
+
+        public int SellerCount { get; }
+
+        public int CardCount { get; }
+
+        public decimal MinimumCardCostLowerBound { get; set; }
+    }
+
+    private sealed record ParallelSearchPartition(
+        int StartFirstSellerIndex,
+        int EndFirstSellerIndexExclusive,
+        double Work);
+
+    private sealed class SharedSearchIncumbent
+    {
+        private readonly object _sync = new();
+        private SelectionResult? _bestSelection;
+        private double _bestCostHint = double.PositiveInfinity;
+        private int _updateCount;
+
+        public SharedSearchIncumbent(SelectionResult? initialBestSelection)
+        {
+            if (initialBestSelection is null)
+            {
+                return;
+            }
+
+            _bestSelection = new SelectionResult(
+                initialBestSelection.SelectedOrderedSellerIndices.ToArray(),
+                initialBestSelection.TotalCost);
+            _bestCostHint = (double)initialBestSelection.TotalCost;
+        }
+
+        public decimal BestCostHint
+        {
+            get
+            {
+                var bestCostHint = Volatile.Read(ref _bestCostHint);
+                return double.IsPositiveInfinity(bestCostHint)
+                    ? InfiniteCost
+                    : (decimal)bestCostHint;
+            }
+        }
+
+        public int UpdateCount => Volatile.Read(ref _updateCount);
+
+        public SelectionResult? Snapshot
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _bestSelection is null
+                        ? null
+                        : new SelectionResult(
+                            _bestSelection.SelectedOrderedSellerIndices.ToArray(),
+                            _bestSelection.TotalCost);
+                }
+            }
+        }
+
+        public bool TryUpdate(SelectionResult candidate)
+        {
+            lock (_sync)
+            {
+                if (!IsBetterCandidate(candidate, _bestSelection))
+                {
+                    return false;
+                }
+
+                _bestSelection = new SelectionResult(
+                    candidate.SelectedOrderedSellerIndices.ToArray(),
+                    candidate.TotalCost);
+                Volatile.Write(ref _bestCostHint, (double)candidate.TotalCost);
+                Interlocked.Increment(ref _updateCount);
+                return true;
+            }
+        }
+    }
 
     private sealed class SellerCardProfile
     {

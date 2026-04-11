@@ -442,6 +442,30 @@ public sealed class PurchaseOptimizerTests
     }
 
     [Fact]
+    public void Optimize_SkipsFinalRefineWhenExactAlreadyProvidesFullCoverage()
+    {
+        var sut = CreateSut();
+        var cardA = Card(
+            "p1",
+            desiredQuantity: 1,
+            Offer("SellerA", "p1", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p1", price: 5m, availableQuantity: 1));
+        var cardB = Card(
+            "p2",
+            desiredQuantity: 1,
+            Offer("SellerA", "p2", price: 1m, availableQuantity: 1),
+            Offer("SellerB", "p2", price: 5m, availableQuantity: 1));
+
+        var result = sut.Optimize(Snapshot(
+            scopedMarketData: [cardA, cardB],
+            purgedMarketData: [cardA, cardB],
+            remainingRequiredByCardKey: Remaining("p1", 1, "p2", 1)));
+
+        Assert.Equal(["SellerA"], result.SelectedSellerNames);
+        Assert.DoesNotContain(result.ProfilePhases, phase => phase.Name == "Optimize.FinalRefine");
+    }
+
+    [Fact]
     public void Optimize_EmitsProfilePhasesAndRemainsDeterministicAcrossRuns()
     {
         var sut = CreateSut(new PurchaseOptimizerOptions
@@ -481,6 +505,13 @@ public sealed class PurchaseOptimizerTests
         Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.BuildCanonicalSellers");
         Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.CandidatePool");
         Assert.Contains(baseline.ProfilePhases, phase => phase.Name == "Optimize.BuildAssignments");
+        var exactPhase = Assert.Single(baseline.ProfilePhases, phase => phase.Name == "Optimize.ReducedExact");
+        Assert.True(exactPhase.Counters.ContainsKey("lowerBoundSellerCount"));
+        Assert.True(exactPhase.Counters.ContainsKey("targetKsEvaluated"));
+        Assert.True(exactPhase.Counters.ContainsKey("deadlineHit"));
+        Assert.True(exactPhase.Counters.ContainsKey("bestCostUpdates"));
+        Assert.True(exactPhase.Counters.ContainsKey("partitionCount"));
+        Assert.True(exactPhase.Notes.ContainsKey("incumbentSource"));
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
