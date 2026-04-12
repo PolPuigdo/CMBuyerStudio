@@ -12,6 +12,7 @@ using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
 using CMBuyerStudio.Infrastructure.Options;
 using CMBuyerStudio.Infrastructure.Paths;
+using CMBuyerStudio.Infrastructure.Settings;
 using CMBuyerStudio.Persistence.WantedCards;
 using CMBuyerStudio.Reporting;
 using Microsoft.Extensions.Configuration;
@@ -55,6 +56,7 @@ public static class ServiceRegistration
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSingleton<IAppPaths, AppPaths>();
+        services.AddSingleton<IAppSettingsService, AppSettingsService>();
 
         services.Configure<ScrapingOptions>(configuration.GetSection(ScrapingOptions.SectionName));
         services.AddSingleton<IMarketDataCacheService, MarketDataCacheService>();

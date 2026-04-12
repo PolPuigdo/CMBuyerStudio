@@ -1,12 +1,518 @@
-﻿<UserControl x:Class="CMBuyerStudio.Desktop.Views.SettingsView"
+<UserControl x:Class="CMBuyerStudio.Desktop.Views.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Background="#12141A">
-        <TextBlock Text="SETTINGS"
-                   Foreground="White"
-                   FontSize="32"
-                   FontWeight="Bold"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"/>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:CMBuyerStudio.Desktop.Helpers">
+
+    <UserControl.Resources>
+        <Style x:Key="CompactTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource SearchTextBoxStyle}">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <Style x:Key="CompactPasswordBoxStyle" TargetType="PasswordBox">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Background" Value="#101520"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+
+        <Style x:Key="SettingsComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder"
+                                Background="{TemplateBinding Background}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#263249"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#2F3D58"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+            <Setter Property="Background" Value="#101520"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource SettingsComboBoxItemStyle}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Focusable="False"
+                                          ClickMode="Press"
+                                          Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="SelectionBorder"
+                                                Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="26"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <ContentPresenter Margin="10,0,8,0"
+                                                                  VerticalAlignment="Center"
+                                                                  HorizontalAlignment="Left"
+                                                                  TextElement.Foreground="{TemplateBinding Foreground}"
+                                                                  Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                  ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                  ContentTemplateSelector="{Binding ItemTemplateSelector, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+
+                                                <Border Grid.Column="1"
+                                                        BorderBrush="{StaticResource BrushBorder}"
+                                                        BorderThickness="1,0,0,0">
+                                                    <Path x:Name="Arrow"
+                                                          Data="M 0 0 L 4 4 L 8 0"
+                                                          Stroke="{StaticResource BrushTextSecondary}"
+                                                          StrokeThickness="1.8"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          HorizontalAlignment="Center"
+                                                          VerticalAlignment="Center"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="SelectionBorder" Property="Background" Value="#131B29"/>
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="SelectionBorder" Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                                                <Setter TargetName="Arrow" Property="Stroke" Value="{StaticResource BrushAccent}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter TargetName="SelectionBorder" Property="Opacity" Value="0.55"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <ToggleButton.Background>
+                                    <SolidColorBrush Color="#101520"/>
+                                </ToggleButton.Background>
+                                <ToggleButton.BorderBrush>
+                                    <SolidColorBrush Color="#2A3140"/>
+                                </ToggleButton.BorderBrush>
+                                <ToggleButton.BorderThickness>1</ToggleButton.BorderThickness>
+                            </ToggleButton>
+
+                            <Popup x:Name="PART_Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Focusable="False"
+                                   AllowsTransparency="True"
+                                   PopupAnimation="Fade">
+                                <Border x:Name="DropDownBorder"
+                                        Margin="0,4,0,0"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                        Background="#101520"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  CanContentScroll="True">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="ToggleButton" Property="BorderBrush" Value="{StaticResource BrushAccent}"/>
+                            </Trigger>
+                            <Trigger SourceName="PART_Popup" Property="Popup.AllowsTransparency" Value="True">
+                                <Setter TargetName="DropDownBorder" Property="SnapsToDevicePixels" Value="True"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ToggleButton" Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="16"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Style="{StaticResource SectionPanelStyle}" Padding="20">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0">
+                    <TextBlock Text="Settings"
+                               Foreground="{StaticResource BrushTextPrimary}"
+                               FontSize="24"
+                               FontWeight="Bold"/>
+
+                    <TextBlock Text="Configure cache, shipping and scraping settings from the app."
+                               Margin="0,6,0,0"
+                               Foreground="{StaticResource BrushTextSecondary}"
+                               FontSize="13"/>
+                </StackPanel>
+
+                <Button Grid.Row="0"
+                        Grid.Column="1"
+                        Content="Save Settings"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        MinWidth="170"
+                        Command="{Binding SaveCommand}"
+                        IsEnabled="{Binding CanSave}"/>
+
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2">
+                    <TextBlock Text="{Binding StatusMessage}"
+                               Foreground="{StaticResource BrushTextSecondary}"
+                               FontSize="13"/>
+
+                    <TextBlock Text="{Binding ValidationMessage}"
+                               Margin="0,6,0,0"
+                               Foreground="#FFD7A0A0"
+                               FontSize="13">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasValidationMessage}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <ScrollViewer Grid.Row="2"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <Border Style="{StaticResource SectionPanelStyle}" Padding="18" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Cache"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"/>
+
+                        <TextBlock Text="Time-to-live in hours for scraped card cache."
+                                   Margin="0,6,0,12"
+                                   Foreground="{StaticResource BrushTextSecondary}"
+                                   FontSize="13"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="120"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="TtlHours"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBox Grid.Column="1"
+                                     Style="{StaticResource CompactTextBoxStyle}"
+                                     Text="{Binding CacheTtlHours, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionPanelStyle}" Padding="18" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Shipping Costs"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"/>
+
+                        <TextBlock Text="Default shipping and cost per country."
+                                   Margin="0,6,0,12"
+                                   Foreground="{StaticResource BrushTextSecondary}"
+                                   FontSize="13"/>
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="120"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Default"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBox Grid.Column="1"
+                                     Style="{StaticResource CompactTextBoxStyle}"
+                                     Text="{Binding ShippingDefaultCost, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding ShippingCosts}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="120"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Text="{Binding Country}"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrushTextPrimary}"/>
+
+                                        <TextBox Grid.Column="1"
+                                                 Style="{StaticResource CompactTextBoxStyle}"
+                                                 Text="{Binding Cost, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionPanelStyle}" Padding="18" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Scraping"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"/>
+
+                        <TextBlock Text="Credentials and scraping filters."
+                                   Margin="0,6,0,12"
+                                   Foreground="{StaticResource BrushTextSecondary}"
+                                   FontSize="13"/>
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Cardmarket Username"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextPrimary}"/>
+
+                            <TextBox Grid.Column="1"
+                                     Style="{StaticResource CompactTextBoxStyle}"
+                                     Text="{Binding CardmarketUsername, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="14"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Cardmarket Password"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextPrimary}"/>
+
+                            <Grid Grid.Column="1">
+                                <TextBox Text="{Binding CardmarketPassword, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox" BasedOn="{StaticResource CompactTextBoxStyle}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowPassword}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                </TextBox>
+
+                                <PasswordBox helpers:PasswordBoxBinding.BindPassword="True"
+                                             helpers:PasswordBoxBinding.BoundPassword="{Binding CardmarketPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                    <PasswordBox.Style>
+                                        <Style TargetType="PasswordBox" BasedOn="{StaticResource CompactPasswordBoxStyle}">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ShowPassword}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </PasswordBox.Style>
+                                </PasswordBox>
+                            </Grid>
+
+                            <CheckBox Grid.Column="3"
+                                      Content="Show"
+                                      VerticalAlignment="Center"
+                                      Foreground="{StaticResource BrushTextSecondary}"
+                                      IsChecked="{Binding ShowPassword}"/>
+                        </Grid>
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Min Condition"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource BrushTextPrimary}"/>
+
+                            <ComboBox Grid.Column="1"
+                                      Style="{StaticResource SettingsComboBoxStyle}"
+                                      ItemsSource="{Binding MinConditionOptions}"
+                                      DisplayMemberPath="Name"
+                                      SelectedValuePath="Id"
+                                      SelectedValue="{Binding SelectedMinConditionId}"/>
+                        </Grid>
+
+                        <TextBlock Text="Seller Countries"
+                                   Margin="0,2,0,6"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontWeight="SemiBold"/>
+
+                        <ItemsControl ItemsSource="{Binding SellerCountryOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Margin="0,0,14,8"
+                                              Content="{Binding Name}"
+                                              Foreground="{StaticResource BrushTextSecondary}"
+                                              IsChecked="{Binding IsSelected}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Languages"
+                                   Margin="0,6,0,6"
+                                   Foreground="{StaticResource BrushTextPrimary}"
+                                   FontWeight="SemiBold"/>
+
+                        <ItemsControl ItemsSource="{Binding LanguageOptions}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Margin="0,0,14,8"
+                                              Content="{Binding Name}"
+                                              Foreground="{StaticResource BrushTextSecondary}"
+                                              IsChecked="{Binding IsSelected}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionPanelStyle}" Padding="18">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Text="Proxies"
+                                       Foreground="{StaticResource BrushTextPrimary}"
+                                       FontSize="18"
+                                       FontWeight="SemiBold"/>
+
+                            <Button Grid.Column="1"
+                                    Content="Add Proxy"
+                                    Style="{StaticResource SecondaryButtonStyle}"
+                                    MinWidth="120"
+                                    Command="{Binding AddProxyCommand}"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding Proxies}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#171D29"
+                                            BorderBrush="{StaticResource BrushBorder}"
+                                            BorderThickness="1"
+                                            CornerRadius="10"
+                                            Padding="10"
+                                            Margin="0,0,0,8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="8"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBox Grid.Column="0"
+                                                     Style="{StaticResource CompactTextBoxStyle}"
+                                                     Text="{Binding Server, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                            <TextBox Grid.Column="2"
+                                                     Style="{StaticResource CompactTextBoxStyle}"
+                                                     Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                            <TextBox Grid.Column="4"
+                                                     Style="{StaticResource CompactTextBoxStyle}"
+                                                     Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                            <Button Grid.Column="6"
+                                                    Content="Remove"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    MinWidth="90"
+                                                    Command="{Binding DataContext.RemoveProxyCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

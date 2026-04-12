@@ -2,8 +2,7 @@
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Extensions;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Interaction;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright.Locators;
-using CMBuyerStudio.Infrastructure.Options;
-using Microsoft.Extensions.Options;
+using CMBuyerStudio.Application.Abstractions;
 using Microsoft.Playwright;
 using System;
 using System.Collections.Generic;
@@ -13,11 +12,11 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 {
     public sealed class CardmarketSessionSetup : ICardmarketSessionSetup
     {
-        private readonly ScrapingOptions _scrapingOptions;
+        private readonly IAppSettingsService _appSettingsService;
 
-        public CardmarketSessionSetup(IOptions<ScrapingOptions> scrapingOptions)
+        public CardmarketSessionSetup(IAppSettingsService appSettingsService)
         {
-            _scrapingOptions = scrapingOptions.Value;
+            _appSettingsService = appSettingsService;
         }
 
         public async Task PrepareAsync(IPage page, string url, CancellationToken cancellationToken = default)
@@ -39,11 +38,13 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
 
         private async Task SignInIfNeededAsync(IPage page, CancellationToken cancellationToken)
         {
+            var settings = await _appSettingsService.GetCurrentAsync(cancellationToken);
+
             var usernameInput = page.Locator(CardmarketLocators.Login.UsernameInput).First;
-            await TypeIntoLoginInputAsync(usernameInput, _scrapingOptions.CardmarketUsername);
+            await TypeIntoLoginInputAsync(usernameInput, settings.Scraping.CardmarketUsername);
 
             var passwordInput = page.Locator(CardmarketLocators.Login.PasswordInput).First;
-            await TypeIntoLoginInputAsync(passwordInput, _scrapingOptions.CardmarketPassword);
+            await TypeIntoLoginInputAsync(passwordInput, settings.Scraping.CardmarketPassword);
 
             var loginButton = page.Locator(CardmarketLocators.Login.SubmitButton).First;
             await PlaywrightClicker.ClickWithJitterAsync(loginButton);

@@ -1,7 +1,6 @@
 ﻿using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Infrastructure.Cardmarket.Cache;
-using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 
 namespace CMBuyerStudio.Infrastructure.Caching;
@@ -13,13 +12,13 @@ public sealed class MarketDataCacheService : IMarketDataCacheService
         WriteIndented = true
     };
 
-    private readonly IConfiguration _configuration;
+    private readonly IAppSettingsService _appSettingsService;
     private readonly string _cachePath;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public MarketDataCacheService(IConfiguration configuration, IAppPaths paths)
+    public MarketDataCacheService(IAppSettingsService appSettingsService, IAppPaths paths)
     {
-        _configuration = configuration;
+        _appSettingsService = appSettingsService;
         _cachePath = Path.Combine(paths.CardsCachePath, "market-data-cache.json");
     }
 
@@ -43,7 +42,7 @@ public sealed class MarketDataCacheService : IMarketDataCacheService
                 return null;
             }
 
-            var ttl = GetTtl();
+            var ttl = await GetTtlAsync(cancellationToken);
             var expiresAtUtc = entry.CachedAtUtc.Add(ttl);
 
             if (DateTime.UtcNow > expiresAtUtc)
@@ -101,9 +100,10 @@ public sealed class MarketDataCacheService : IMarketDataCacheService
         }
     }
 
-    private TimeSpan GetTtl()
+    private async Task<TimeSpan> GetTtlAsync(CancellationToken cancellationToken)
     {
-        var ttlHours = _configuration.GetValue<int>("Cache:TtlHours");
+        var settings = await _appSettingsService.GetCurrentAsync(cancellationToken);
+        var ttlHours = Math.Max(1, settings.Cache.TtlHours);
         return TimeSpan.FromHours(ttlHours);
     }
 

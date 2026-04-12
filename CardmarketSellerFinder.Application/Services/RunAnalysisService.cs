@@ -6,8 +6,6 @@ using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Domain.WantedCards;
 using CMBuyerStudio.Application.Common.Countries;
-using Microsoft.Extensions.Options;
-using CMBuyerStudio.Application.Common.Options;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -27,9 +25,7 @@ namespace CMBuyerStudio.Application.Services
         private readonly OfferPurger _offerPurger;
         private readonly PurchaseOptimizer _purchaseOptimizer;
         private readonly IAppPaths _appPaths;
-
-        private readonly decimal _defaultShippingCost;
-        private readonly Dictionary<string, decimal> _shippingCostByCountryCode;
+        private readonly IAppSettingsService _appSettingsService;
 
         private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -44,7 +40,7 @@ namespace CMBuyerStudio.Application.Services
             OfferPurger offerPurger,
             PurchaseOptimizer purchaseOptimizer,
             IAppPaths appPaths,
-            IOptions<ShippingCostsOptions> shippingOptions)
+            IAppSettingsService appSettingsService)
         {
             _wantedCardsRepository = wantedCardsRepository;
             _marketDataCacheService = marketDataCacheService;
@@ -53,8 +49,7 @@ namespace CMBuyerStudio.Application.Services
             _offerPurger = offerPurger;
             _purchaseOptimizer = purchaseOptimizer;
             _appPaths = appPaths;
-            _defaultShippingCost = (decimal)Math.Max(0, shippingOptions.Value.Default);
-            _shippingCostByCountryCode = BuildShippingByCountryCode(shippingOptions.Value.Countries);
+            _appSettingsService = appSettingsService;
         }
 
         private async Task CalculateScrapPercentage(IProgress<RunProgressEvent> progress)
@@ -73,6 +68,10 @@ namespace CMBuyerStudio.Application.Services
 
         public async Task RunAsync(IProgress<RunProgressEvent> progress, CancellationToken cancellationToken = default)
         {
+            var currentSettings = await _appSettingsService.GetCurrentAsync(cancellationToken);
+            var defaultShippingCost = (decimal)Math.Max(0, currentSettings.ShippingCosts.Default);
+            var shippingCostByCountryCode = BuildShippingByCountryCode(currentSettings.ShippingCosts.Countries);
+
             progress.Report(new RunStartedEvent(0));
 
             // Get cards from cards.json
@@ -156,8 +155,16 @@ namespace CMBuyerStudio.Application.Services
             progress.Report(new PurgeStartEvent(82));
 
             // Purge useless sellers
-            var euPreparation = BuildPurgedScopeSnapshot(compactedAnalysis.MarketData, SellerScopeMode.Eu);
-            var localPreparation = BuildPurgedScopeSnapshot(compactedAnalysis.MarketData, SellerScopeMode.Local);
+            var euPreparation = BuildPurgedScopeSnapshot(
+                compactedAnalysis.MarketData,
+                SellerScopeMode.Eu,
+                defaultShippingCost,
+                shippingCostByCountryCode);
+            var localPreparation = BuildPurgedScopeSnapshot(
+                compactedAnalysis.MarketData,
+                SellerScopeMode.Local,
+                defaultShippingCost,
+                shippingCostByCountryCode);
             var sharedSetupPhases = new List<OptimizationPhaseProfile> { analysisBuildPhase, compactionPhase };
 
             progress.Report(new EUCalculationStartEvent(84));
@@ -432,14 +439,19 @@ namespace CMBuyerStudio.Application.Services
 
         private ScopePreparationResult BuildPurgedScopeSnapshot(
         IReadOnlyList<MarketCardData> allMarketData,
-        SellerScopeMode scope)
+        SellerScopeMode scope,
+        decimal defaultShippingCost,
+        IReadOnlyDictionary<string, decimal> shippingCostByCountryCode)
         {
             var applyScopeStopwatch = Stopwatch.StartNew();
             var scopedMarketData = ApplyScope(allMarketData, scope);
             applyScopeStopwatch.Stop();
 
             var fixedCostStopwatch = Stopwatch.StartNew();
-            var fixedCostBySellerName = BuildFixedCostBySeller(scopedMarketData);
+            var fixedCostBySellerName = BuildFixedCostBySeller(
+                scopedMarketData,
+                defaultShippingCost,
+                shippingCostByCountryCode);
             fixedCostStopwatch.Stop();
 
             var purgeResult = _offerPurger.Purge(scopedMarketData, fixedCostBySellerName);
@@ -509,8 +521,10 @@ namespace CMBuyerStudio.Application.Services
             };
         }
 
-        private Dictionary<string, decimal> BuildFixedCostBySeller(
-        IReadOnlyList<MarketCardData> marketData)
+        private static Dictionary<string, decimal> BuildFixedCostBySeller(
+            IReadOnlyList<MarketCardData> marketData,
+            decimal defaultShippingCost,
+            IReadOnlyDictionary<string, decimal> shippingCostByCountryCode)
         {
             var sellerCountryByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -526,21 +540,24 @@ namespace CMBuyerStudio.Application.Services
 
             foreach (var pair in sellerCountryByName)
             {
-                result[pair.Key] = ResolveShippingCost(pair.Value);
+                result[pair.Key] = ResolveShippingCost(pair.Value, defaultShippingCost, shippingCostByCountryCode);
             }
 
             return result;
         }
 
-        private decimal ResolveShippingCost(string country)
+        private static decimal ResolveShippingCost(
+            string country,
+            decimal defaultShippingCost,
+            IReadOnlyDictionary<string, decimal> shippingCostByCountryCode)
         {
             if (CountryCatalog.TryGetCountryCode(country, out var countryCode)
-                && _shippingCostByCountryCode.TryGetValue(countryCode, out var cost))
+                && shippingCostByCountryCode.TryGetValue(countryCode, out var cost))
             {
                 return cost;
             }
 
-            return _defaultShippingCost;
+            return defaultShippingCost;
         }
 
         private static string BuildPreparationSummary(string scope, ScopePreparationResult preparation)
