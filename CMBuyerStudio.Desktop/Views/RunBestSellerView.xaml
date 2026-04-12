@@ -70,6 +70,19 @@
             <Setter Property="Padding" Value="16"/>
         </Style>
 
+        <!-- Hide optional text rows when value is empty -->
+        <Style x:Key="OptionalDetailTextStyle" TargetType="TextBlock">
+            <Setter Property="Visibility" Value="Visible"/>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
     </UserControl.Resources>
 
     <Grid Background="{StaticResource BrushBackgroundMain}">
@@ -186,7 +199,8 @@
 
                 <!-- PROGRESS -->
                 <Border Grid.Row="2"
-                        Style="{StaticResource RunInfoPanelStyle}">
+                        Style="{StaticResource RunInfoPanelStyle}"
+                        Padding="16,14,16,10">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -231,6 +245,7 @@
                                        Margin="0,6,0,0"
                                        Foreground="{StaticResource BrushTextSecondary}"
                                        FontSize="13"
+                                       Style="{StaticResource OptionalDetailTextStyle}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
@@ -315,35 +330,51 @@
                     </Grid.ColumnDefinitions>
 
                     <Border Grid.Column="0"
-                            Style="{StaticResource RunInfoPanelStyle}">
-                        <StackPanel>
+                            Style="{StaticResource RunInfoPanelStyle}"
+                            Padding="16,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <TextBlock Text="EU calculation"
                                        Foreground="{StaticResource BrushTextPrimary}"
                                        FontSize="15"
-                                       FontWeight="SemiBold"/>
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
 
-                            <TextBlock Text="{Binding EuSummaryText}"
-                                       Margin="0,8,0,0"
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding EuTotalText}"
                                        Foreground="{StaticResource BrushTextSecondary}"
                                        FontSize="13"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"/>
+                        </Grid>
                     </Border>
 
                     <Border Grid.Column="2"
-                            Style="{StaticResource RunInfoPanelStyle}">
-                        <StackPanel>
+                            Style="{StaticResource RunInfoPanelStyle}"
+                            Padding="16,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <TextBlock Text="Local calculation"
                                        Foreground="{StaticResource BrushTextPrimary}"
                                        FontSize="15"
-                                       FontWeight="SemiBold"/>
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
 
-                            <TextBlock Text="{Binding LocalSummaryText}"
-                                       Margin="0,8,0,0"
+                            <TextBlock Grid.Column="1"
+                                       Text="{Binding LocalTotalText}"
                                        Foreground="{StaticResource BrushTextSecondary}"
                                        FontSize="13"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"/>
+                        </Grid>
                     </Border>
                 </Grid>
 

@@ -169,7 +169,9 @@ namespace CMBuyerStudio.Application.Services
                 euOptimizationRawResult,
                 BuildRunProfile("EU", [.. sharedSetupPhases, .. euPreparation.ProfilePhases], euOptimizationRawResult.ProfilePhases));
 
-            progress.Report(new EUCalculationCompleteEvent());
+            progress.Report(new EUCalculationCompleteEvent(
+                90,
+                CalculateGrandTotal(euOptimizationResult, euPreparation.Snapshot)));
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -180,7 +182,9 @@ namespace CMBuyerStudio.Application.Services
                 localOptimizationRawResult,
                 BuildRunProfile("Local", [.. sharedSetupPhases, .. localPreparation.ProfilePhases], localOptimizationRawResult.ProfilePhases));
 
-            progress.Report(new LocalCalculationCompleteEvent());
+            progress.Report(new LocalCalculationCompleteEvent(
+                96,
+                CalculateGrandTotal(localOptimizationResult, localPreparation.Snapshot)));
 
             progress.Report(new ReportStartEvent(96));
 
@@ -550,6 +554,17 @@ namespace CMBuyerStudio.Application.Services
                 .Count();
 
             return $"{scope}: cards {scopedCards} | offers {scopedOffers} | sellers after purge {remainingSellers}";
+        }
+
+        private static decimal CalculateGrandTotal(
+            PurchaseOptimizationResult result,
+            PurgedScopeSnapshot snapshot)
+        {
+            var shippingTotal = result.SelectedSellerNames
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Sum(sellerName => snapshot.FixedCostBySellerName.TryGetValue(sellerName, out var fixedCost) ? fixedCost : 0m);
+
+            return result.CardsTotalPrice + shippingTotal;
         }
 
         private static PurchaseOptimizationResult AttachRunProfile(

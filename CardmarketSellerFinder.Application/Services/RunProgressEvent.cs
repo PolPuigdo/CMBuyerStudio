@@ -19,10 +19,10 @@ public record BuildPhasesStartEvent() : RunProgressEvent;
 public record PurgeStartEvent(int Progress) : RunProgressEvent;
 
 public record EUCalculationStartEvent(int Progress) : RunProgressEvent;
-public record EUCalculationCompleteEvent() : RunProgressEvent;
+public record EUCalculationCompleteEvent(int Progress, decimal TotalPrice) : RunProgressEvent;
 
 public record LocalCalculationStartEvent(int Progress) : RunProgressEvent;
-public record LocalCalculationCompleteEvent() : RunProgressEvent;
+public record LocalCalculationCompleteEvent(int Progress, decimal TotalPrice) : RunProgressEvent;
 
 
 // Reports

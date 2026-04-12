@@ -3,6 +3,7 @@ using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Desktop.Commands;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -51,15 +52,29 @@ public sealed class RunBestSellerViewModel : ViewModelBase
     public int ProgressValue
     {
         get => _progressValue;
-        set => SetProperty(ref _progressValue, value);
+        set
+        {
+            if (SetProperty(ref _progressValue, value))
+            {
+                OnPropertyChanged(nameof(ProgressText));
+            }
+        }
     }
 
     private int _progressMaximum;
     public int ProgressMaximum
     {
         get => _progressMaximum;
-        set => SetProperty(ref _progressMaximum, value);
+        set
+        {
+            if (SetProperty(ref _progressMaximum, value))
+            {
+                OnPropertyChanged(nameof(ProgressText));
+            }
+        }
     }
+
+    public string ProgressText => $"{CalculateProgressPercentage(ProgressValue, ProgressMaximum)}%";
 
     private string _statusText = "";
     public string StatusText
@@ -114,6 +129,20 @@ public sealed class RunBestSellerViewModel : ViewModelBase
     public string TotalWantedCardsText
         => TotalWantedCards == 1 ? "1 card" : $"{TotalWantedCards} cards";
 
+    private string _euTotalText = "Pending";
+    public string EuTotalText
+    {
+        get => _euTotalText;
+        private set => SetProperty(ref _euTotalText, value);
+    }
+
+    private string _localTotalText = "Pending";
+    public string LocalTotalText
+    {
+        get => _localTotalText;
+        private set => SetProperty(ref _localTotalText, value);
+    }
+
     public bool CanOpenEuReport => HasExistingReport(_euReportPath);
 
     public bool CanOpenLocalReport => HasExistingReport(_localReportPath);
@@ -124,6 +153,7 @@ public sealed class RunBestSellerViewModel : ViewModelBase
     {
         _cts = new CancellationTokenSource();
         ResetReportState();
+        ResetCalculationTotals();
 
         CanRun = false;
         CanCancel = true;
@@ -202,6 +232,8 @@ public sealed class RunBestSellerViewModel : ViewModelBase
                 break;
 
             case EUCalculationCompleteEvent euCalc:
+                ProgressValue = euCalc.Progress;
+                EuTotalText = FormatEuroPrice(euCalc.TotalPrice);
                 SetStep("EU Calculation", StepStatus.Completed);
                 break;
 
@@ -212,6 +244,8 @@ public sealed class RunBestSellerViewModel : ViewModelBase
                 break;
 
             case LocalCalculationCompleteEvent euCalc:
+                ProgressValue = euCalc.Progress;
+                LocalTotalText = FormatEuroPrice(euCalc.TotalPrice);
                 SetStep("Local Calculation", StepStatus.Completed);
                 break;
 
@@ -290,8 +324,31 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanOpenLocalReport));
     }
 
+    private void ResetCalculationTotals()
+    {
+        EuTotalText = "Pending";
+        LocalTotalText = "Pending";
+    }
+
     private static bool HasExistingReport(string? path)
         => !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
+    private static int CalculateProgressPercentage(int currentValue, int maximumValue)
+    {
+        if (maximumValue <= 0)
+        {
+            return 0;
+        }
+
+        var percentage = (int)Math.Round((double)currentValue * 100 / maximumValue, MidpointRounding.AwayFromZero);
+        return Math.Max(0, Math.Min(100, percentage));
+    }
+
+    private static string FormatEuroPrice(decimal value)
+    {
+        var culture = CultureInfo.GetCultureInfo("es-ES");
+        return string.Format(culture, "{0:N2} EUR", value);
+    }
 
     private static void OpenReport(string? reportPath)
     {
