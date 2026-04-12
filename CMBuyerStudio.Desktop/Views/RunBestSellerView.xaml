@@ -116,7 +116,7 @@
                         CornerRadius="10"
                         Padding="12,8"
                         VerticalAlignment="Center">
-                    <TextBlock Text="{Binding TotalWantedGroups}"
+                    <TextBlock Text="{Binding TotalWantedCardsText}"
                                Foreground="{StaticResource BrushTextPrimary}"
                                FontWeight="SemiBold"/>
                 </Border>

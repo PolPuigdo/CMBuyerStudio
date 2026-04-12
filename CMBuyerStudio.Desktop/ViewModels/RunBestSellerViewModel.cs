@@ -2,6 +2,7 @@ using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Desktop.Commands;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -13,6 +14,7 @@ namespace CMBuyerStudio.Desktop.ViewModels;
 public sealed class RunBestSellerViewModel : ViewModelBase
 {
     private readonly IRunAnalysisService _runService;
+    private readonly WantedCardsViewModel _wantedCardsViewModel;
     private CancellationTokenSource? _cts;
     private string? _euReportPath;
     private string? _localReportPath;
@@ -24,9 +26,12 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 
     public ObservableCollection<RunStepViewModel> Steps { get; } = new();
 
-    public RunBestSellerViewModel(IRunAnalysisService runService)
+    public RunBestSellerViewModel(
+        IRunAnalysisService runService,
+        WantedCardsViewModel wantedCardsViewModel)
     {
         _runService = runService;
+        _wantedCardsViewModel = wantedCardsViewModel;
 
         RunCommand = new RelayCommand(async _ => await RunAsync());
         CancelCommand = new RelayCommand(_ => Cancel());
@@ -35,6 +40,9 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 
         InitializeSteps();
         ReportsStatusText = "No reports generated yet.";
+
+        _wantedCardsViewModel.PropertyChanged += OnWantedCardsViewModelPropertyChanged;
+        TotalWantedCards = _wantedCardsViewModel.TotalGroups;
     }
 
     #region Properties
@@ -87,6 +95,22 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         get => _reportsStatusText;
         set => SetProperty(ref _reportsStatusText, value);
     }
+
+    private int _totalWantedCards;
+    public int TotalWantedCards
+    {
+        get => _totalWantedCards;
+        private set
+        {
+            if (SetProperty(ref _totalWantedCards, value))
+            {
+                OnPropertyChanged(nameof(TotalWantedCardsText));
+            }
+        }
+    }
+
+    public string TotalWantedCardsText
+        => TotalWantedCards == 1 ? "1 card" : $"{TotalWantedCards} cards";
 
     public bool CanOpenEuReport => HasExistingReport(_euReportPath);
 
@@ -208,6 +232,14 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         if (step != null)
         {
             step.Status = status;
+        }
+    }
+
+    private void OnWantedCardsViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(WantedCardsViewModel.TotalGroups))
+        {
+            TotalWantedCards = _wantedCardsViewModel.TotalGroups;
         }
     }
 
