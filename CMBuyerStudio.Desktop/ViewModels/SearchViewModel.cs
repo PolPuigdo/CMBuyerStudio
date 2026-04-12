@@ -18,10 +18,12 @@ public sealed class SearchViewModel : ViewModelBase
     private readonly WantedCardsViewModel _wantedCardsViewModel;
 
     private string _searchText = string.Empty;
+    private SearchExpansionOption? _selectedExpansion;
     private int _selectedQuantity = 1;
     private bool _isSearching;
     private bool _isSaving;
 
+    public ObservableCollection<SearchExpansionOption> Expansions { get; } = new();
     public ObservableCollection<SearchCardResult> Results { get; } = new();
 
     public string SearchText
@@ -84,6 +86,12 @@ public sealed class SearchViewModel : ViewModelBase
 
     public bool CanSaveSelection => !IsSaving && SelectedVariantsCount > 0 && SelectedQuantity > 0;
 
+    public SearchExpansionOption? SelectedExpansion
+    {
+        get => _selectedExpansion;
+        set => SetProperty(ref _selectedExpansion, value);
+    }
+
     public ICommand SearchCommand { get; }
     public ICommand SaveSelectionCommand { get; }
     public ICommand SelectAllCommand { get; }
@@ -97,6 +105,17 @@ public sealed class SearchViewModel : ViewModelBase
         _cardSearchService = cardSearchService;
         _wantedCardsService = wantedCardsService;
         _wantedCardsViewModel = wantedCardsViewModel;
+        foreach (var expansion in SearchExpansionCatalog.Load())
+        {
+            Expansions.Add(expansion);
+        }
+
+        if (Expansions.Count == 0)
+        {
+            Expansions.Add(SearchExpansionOption.All);
+        }
+
+        SelectedExpansion = Expansions.FirstOrDefault(expansion => expansion.Id == 0) ?? Expansions[0];
 
         SearchCommand = new RelayCommand(async _ => await SearchAsync());
         SaveSelectionCommand = new RelayCommand(async _ => await SaveSelectionAsync());
@@ -177,7 +196,8 @@ public sealed class SearchViewModel : ViewModelBase
         {
             Results.Clear();
 
-            var results = await _cardSearchService.SearchAsync(SearchText);
+            var expansionId = SelectedExpansion?.Id ?? 0;
+            var results = await _cardSearchService.SearchAsync(SearchText, expansionId);
 
             foreach (var result in results)
             {

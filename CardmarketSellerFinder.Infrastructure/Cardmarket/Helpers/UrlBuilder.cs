@@ -9,7 +9,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Helpers
 {
     public static class UrlBuilder
     {
-        public static string SearchUrl(string query)
+        public static string SearchUrl(string query, int expansionId = 0)
         {
             var trimmedQuery = (query ?? string.Empty).Trim();
 
@@ -19,7 +19,8 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Helpers
             }
 
             var encodedQuery = Uri.EscapeDataString(trimmedQuery).Replace("%20", "+", StringComparison.Ordinal);
-            return $"https://www.cardmarket.com/en/Magic/Products/Singles?idExpansion=0&searchString={encodedQuery}&mode=list";
+            var normalizedExpansionId = expansionId < 0 ? 0 : expansionId;
+            return $"https://www.cardmarket.com/en/Magic/Products/Search?searchMode=v2&idCategory=0&idExpansion={normalizedExpansionId}&searchString={encodedQuery}&mode=list";
         }
 
         public static string BuildFilteredCardUrl(string baseUrl, ScrapingOptions scrapingOptions)

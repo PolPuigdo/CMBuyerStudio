@@ -34,4 +34,8 @@
     <Resource Include="Assets\Images\cardImageNotAvailable.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Data\expansiones_y_values.json" />
+  </ItemGroup>
+
 </Project>

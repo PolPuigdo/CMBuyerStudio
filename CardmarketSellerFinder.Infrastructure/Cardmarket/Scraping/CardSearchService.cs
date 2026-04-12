@@ -20,9 +20,12 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping
             _imageCacheService = imageCacheService ?? throw new ArgumentNullException(nameof(imageCacheService));
         }
 
-        public async Task<IReadOnlyList<SearchCardResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<SearchCardResult>> SearchAsync(
+            string query,
+            int expansionId = 0,
+            CancellationToken cancellationToken = default)
         {
-            var searchUrl = UrlBuilder.SearchUrl(query);
+            var searchUrl = UrlBuilder.SearchUrl(query, expansionId);
             await using var playwright = await _playwrightSessionFactory.CreateChromiumAsync();
             var page = playwright.Page;
 
