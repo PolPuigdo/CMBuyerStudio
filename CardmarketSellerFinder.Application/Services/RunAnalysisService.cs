@@ -58,7 +58,7 @@ namespace CMBuyerStudio.Application.Services
             try
             {
                 _currentScrapeProgress = (int)Math.Round(_currentScrapeProgress + _percentForScrap);
-                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress));
+                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress+3));
             }
             finally
             {
