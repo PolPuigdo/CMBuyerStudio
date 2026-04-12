@@ -1,9 +1,9 @@
+using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Models;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
-using CMBuyerStudio.Infrastructure.Options;
 using CMBuyerStudio.Tests.Integration.Testing;
-using Microsoft.Extensions.Options;
 
 namespace CMBuyerStudio.Tests.Integration;
 
@@ -69,19 +69,22 @@ public sealed class CardMarketScraperTests
         ICardmarketSessionSetup setup,
         IScrapeDelayStrategy delayStrategy)
     {
-        var options = Options.Create(new ScrapingOptions
+        var appSettingsService = new StaticAppSettingsService(new AppSettingsSnapshot
         {
-            Headless = true,
-            MaxConcurrentWorkers = 1,
-            Proxies = [],
-            Languages = "1",
-            MinCondition = 2,
-            SellerCountry = "1"
+            Scraping = new ScrapingSettingsSnapshot
+            {
+                Headless = true,
+                MaxConcurrentWorkers = 1,
+                Languages = "1",
+                MinCondition = 2,
+                SellerCountry = "1",
+                Proxies = []
+            }
         });
 
-        var proxyService = new PlaywrightProxyService(sessionFactory, options);
+        var proxyService = new PlaywrightProxyService(sessionFactory, appSettingsService);
 
-        return new CardMarketScraper(sessionFactory, setup, proxyService, options, delayStrategy);
+        return new CardMarketScraper(sessionFactory, setup, proxyService, appSettingsService, delayStrategy);
     }
 
     private static ScrapingTarget Target(string productUrl)
@@ -105,5 +108,21 @@ public sealed class CardMarketScraperTests
         }
 
         return result;
+    }
+
+    private sealed class StaticAppSettingsService : IAppSettingsService
+    {
+        private readonly AppSettingsSnapshot _snapshot;
+
+        public StaticAppSettingsService(AppSettingsSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public Task<AppSettingsSnapshot> GetCurrentAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_snapshot);
+
+        public Task SaveAsync(AppSettingsSnapshot snapshot, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

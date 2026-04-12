@@ -1,8 +1,9 @@
 using System.Text.Json;
+using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Models;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Infrastructure.Caching;
 using CMBuyerStudio.Tests.Integration.Testing;
-using Microsoft.Extensions.Configuration;
 
 namespace CMBuyerStudio.Tests.Integration;
 
@@ -12,7 +13,7 @@ public sealed class MarketDataCacheServiceTests
     public async Task GetAsync_ReturnsNullWhenEntryDoesNotExist()
     {
         using var paths = new TestAppPaths();
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
 
         var result = await sut.GetAsync(Target("https://example/missing"));
 
@@ -23,7 +24,7 @@ public sealed class MarketDataCacheServiceTests
     public async Task SaveAsync_PersistsAndReturnsCachedEntry()
     {
         using var paths = new TestAppPaths();
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
         var marketData = MarketData("https://example/card-a", "Seller A", 1.10m);
 
         await sut.SaveAsync(marketData);
@@ -37,7 +38,7 @@ public sealed class MarketDataCacheServiceTests
     public async Task SaveAsync_OverwritesExistingEntryByProductUrl()
     {
         using var paths = new TestAppPaths();
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
 
         await sut.SaveAsync(MarketData("https://example/card-a", "Seller A", 1.10m));
         await sut.SaveAsync(MarketData("https://example/card-a", "Seller B", 0.90m));
@@ -65,7 +66,7 @@ public sealed class MarketDataCacheServiceTests
         };
 
         await File.WriteAllTextAsync(cacheFile, JsonSerializer.Serialize(staleEntry));
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 1), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 1), paths);
 
         var cached = await sut.GetAsync(Target("https://example/stale"));
 
@@ -78,7 +79,7 @@ public sealed class MarketDataCacheServiceTests
         using var paths = new TestAppPaths();
         var cacheFile = Path.Combine(paths.CardsCachePath, "market-data-cache.json");
         await File.WriteAllTextAsync(cacheFile, "{bad-json");
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
 
         var cached = await sut.GetAsync(Target("https://example/card-a"));
 
@@ -89,7 +90,7 @@ public sealed class MarketDataCacheServiceTests
     public async Task SaveAsync_LeavesNoTemporaryFileBehind()
     {
         using var paths = new TestAppPaths();
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
 
         await sut.SaveAsync(MarketData("https://example/card-a", "Seller A", 1.10m));
 
@@ -100,7 +101,7 @@ public sealed class MarketDataCacheServiceTests
     public async Task SaveAsync_HandlesParallelReadsAndWrites()
     {
         using var paths = new TestAppPaths();
-        var sut = new MarketDataCacheService(BuildConfiguration(ttlHours: 24), paths);
+        var sut = new MarketDataCacheService(BuildSettingsService(ttlHours: 24), paths);
         var urls = Enumerable.Range(1, 4).Select(index => $"https://example/card-{index}").ToArray();
 
         var tasks = Enumerable.Range(0, 20).Select(async index =>
@@ -121,15 +122,14 @@ public sealed class MarketDataCacheServiceTests
         Assert.False(File.Exists(Path.Combine(paths.CardsCachePath, "market-data-cache.json.tmp")));
     }
 
-    private static IConfiguration BuildConfiguration(int ttlHours)
-    {
-        return new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
+    private static IAppSettingsService BuildSettingsService(int ttlHours)
+        => new StaticAppSettingsService(new AppSettingsSnapshot
+        {
+            Cache = new CacheSettingsSnapshot
             {
-                ["Cache:TtlHours"] = ttlHours.ToString()
-            })
-            .Build();
-    }
+                TtlHours = ttlHours
+            }
+        });
 
     private static ScrapingTarget Target(string productUrl)
     {
@@ -162,5 +162,21 @@ public sealed class MarketDataCacheServiceTests
                 }
             ]
         };
+    }
+
+    private sealed class StaticAppSettingsService : IAppSettingsService
+    {
+        private readonly AppSettingsSnapshot _snapshot;
+
+        public StaticAppSettingsService(AppSettingsSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public Task<AppSettingsSnapshot> GetCurrentAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_snapshot);
+
+        public Task SaveAsync(AppSettingsSnapshot snapshot, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

@@ -32,16 +32,18 @@ public sealed class WantedCardsServiceTests
     {
         var repository = new InMemoryWantedCardsRepository();
         var sut = new WantedCardsService(repository);
-        var incoming = Group("Lightning Bolt", 1, Variant("Alpha", "https://example/alpha", 1.20m));
+        var incoming = Group("Lightning Bolt", 1, Variant("Alpha", "https://example/alpha", 1.20m, @"C:\cache\alpha.jpg"));
 
         await sut.AddOrMergeAsync(incoming);
         incoming.CardName = "Changed";
         incoming.Variants[0].SetName = "Changed";
+        incoming.Variants[0].ImagePath = @"C:\cache\changed.jpg";
 
         var saved = Assert.Single(repository.SavedSnapshots);
         var group = Assert.Single(saved);
         Assert.Equal("Lightning Bolt", group.CardName);
         Assert.Equal("Alpha", group.Variants[0].SetName);
+        Assert.Equal(@"C:\cache\alpha.jpg", group.Variants[0].ImagePath);
         Assert.NotSame(incoming, group);
         Assert.NotSame(incoming.Variants[0], group.Variants[0]);
     }
@@ -100,13 +102,14 @@ public sealed class WantedCardsServiceTests
         };
     }
 
-    private static WantedCardVariant Variant(string setName, string productUrl, decimal? price)
+    private static WantedCardVariant Variant(string setName, string productUrl, decimal? price, string? imagePath = null)
     {
         return new WantedCardVariant
         {
             SetName = setName,
             ProductUrl = productUrl,
-            Price = price
+            Price = price,
+            ImagePath = imagePath
         };
     }
 
@@ -144,7 +147,8 @@ public sealed class WantedCardsServiceTests
                 {
                     SetName = variant.SetName,
                     ProductUrl = variant.ProductUrl,
-                    Price = variant.Price
+                    Price = variant.Price,
+                    ImagePath = variant.ImagePath
                 }))
             };
         }

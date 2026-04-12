@@ -36,8 +36,8 @@ public sealed class JsonWantedCardsRepositoryTests
                 DesiredQuantity = 3,
                 Variants = new ObservableCollection<WantedCardVariant>
                 {
-                    new() { SetName = "Alpha", ProductUrl = "https://example/alpha", Price = 1.25m },
-                    new() { SetName = "M11", ProductUrl = "https://example/m11", Price = 0.80m }
+                    new() { SetName = "Alpha", ProductUrl = "https://example/alpha", Price = 1.25m, ImagePath = @"C:\cache\alpha.jpg" },
+                    new() { SetName = "M11", ProductUrl = "https://example/m11", Price = 0.80m, ImagePath = @"C:\cache\m11.jpg" }
                 }
             }
         };
@@ -51,6 +51,7 @@ public sealed class JsonWantedCardsRepositoryTests
         Assert.Single(roundTrip);
         Assert.Equal(2, roundTrip[0].Variants.Count);
         Assert.Equal(0.80m, roundTrip[0].Variants[1].Price);
+        Assert.Equal(@"C:\cache\m11.jpg", roundTrip[0].Variants[1].ImagePath);
     }
 
     [Fact]

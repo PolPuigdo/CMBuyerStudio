@@ -30,6 +30,11 @@ public sealed class RunAnalysisServiceTests
                 [
                     new WantedCardVariant
                     {
+                        SetName = "Set A Duplicate",
+                        ProductUrl = productUrl
+                    },
+                    new WantedCardVariant
+                    {
                         SetName = "Set A",
                         ProductUrl = productUrl
                     }
@@ -74,6 +79,11 @@ public sealed class RunAnalysisServiceTests
         var reportGenerator = new RecordingHtmlReportGenerator();
         var progressCollector = new ProgressCollector();
         using var appPaths = new TestAppPaths();
+        var appSettingsService = BuildAppSettingsService(new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Spain"] = 1.45,
+            ["Romania"] = 3.00
+        });
         var sut = new RunAnalysisService(
             wantedCardsRepository,
             cacheService,
@@ -82,15 +92,7 @@ public sealed class RunAnalysisServiceTests
             new OfferPurger(),
             new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
             appPaths,
-            Options.Create(new ShippingCostsOptions
-            {
-                Default = 3.0,
-                Countries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["Spain"] = 1.45,
-                    ["Romania"] = 3.00
-                }
-            }));
+            appSettingsService);
 
         await sut.RunAsync(progressCollector);
 
@@ -104,12 +106,14 @@ public sealed class RunAnalysisServiceTests
         Assert.Equal(2, reportEvents.Count);
         Assert.Contains(reportEvents, reportEvent => reportEvent.Scope == "EU" && reportEvent.Path.EndsWith("eu.html", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(reportEvents, reportEvent => reportEvent.Scope == "Local" && reportEvent.Path.EndsWith("local.html", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(progressCollector.Events, e => e is CalculationProfileSnapshotEvent { Scope: "Setup" });
-        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
-        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "Local" });
+        Assert.Contains(progressCollector.Events, e => e is BuildPhasesStartEvent);
+        Assert.Contains(progressCollector.Events, e => e is EUCalculationCompleteEvent);
+        Assert.Contains(progressCollector.Events, e => e is LocalCalculationCompleteEvent);
         Assert.Single(Directory.GetFiles(appPaths.LogsPath, "best-seller-profile-*.json"));
         Assert.Equal(2, Directory.GetFiles(appPaths.LogsPath, "best-seller-snapshot-*.json").Length);
-        Assert.IsType<RunCompletedEvent>(progressCollector.Events[^1]);
+        var lastEvent = Assert.IsType<ReportGeneratedEvent>(progressCollector.Events[^1]);
+        Assert.Equal(100, lastEvent.Progress);
+        Assert.Equal("Local", lastEvent.Scope);
     }
 
     [Fact]
@@ -126,6 +130,11 @@ public sealed class RunAnalysisServiceTests
                 DesiredQuantity = 2,
                 Variants =
                 [
+                    new WantedCardVariant
+                    {
+                        SetName = "Set A Duplicate",
+                        ProductUrl = variantAUrl
+                    },
                     new WantedCardVariant
                     {
                         SetName = "Set A",
@@ -156,6 +165,10 @@ public sealed class RunAnalysisServiceTests
         ]);
         var reportGenerator = new RecordingHtmlReportGenerator();
         using var appPaths = new TestAppPaths();
+        var appSettingsService = BuildAppSettingsService(new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Spain"] = 1.45
+        });
         var sut = new RunAnalysisService(
             wantedCardsRepository,
             cacheService,
@@ -164,14 +177,7 @@ public sealed class RunAnalysisServiceTests
             new OfferPurger(),
             new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
             appPaths,
-            Options.Create(new ShippingCostsOptions
-            {
-                Default = 3.0,
-                Countries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["Spain"] = 1.45
-                }
-            }));
+            appSettingsService);
 
         await sut.RunAsync(new ProgressCollector());
 
@@ -202,6 +208,7 @@ public sealed class RunAnalysisServiceTests
                 DesiredQuantity = 2,
                 Variants =
                 [
+                    new WantedCardVariant { SetName = "Set A Duplicate", ProductUrl = variantAUrl },
                     new WantedCardVariant { SetName = "Set A", ProductUrl = variantAUrl },
                     new WantedCardVariant { SetName = "Set B", ProductUrl = variantBUrl }
                 ]
@@ -227,6 +234,10 @@ public sealed class RunAnalysisServiceTests
         var reportGenerator = new RecordingHtmlReportGenerator();
         var progressCollector = new ProgressCollector();
         using var appPaths = new TestAppPaths();
+        var appSettingsService = BuildAppSettingsService(new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Spain"] = 1.45
+        });
         var sut = new RunAnalysisService(
             wantedCardsRepository,
             cacheService,
@@ -235,14 +246,7 @@ public sealed class RunAnalysisServiceTests
             new OfferPurger(),
             new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
             appPaths,
-            Options.Create(new ShippingCostsOptions
-            {
-                Default = 3.0,
-                Countries = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-                {
-                    ["Spain"] = 1.45
-                }
-            }));
+            appSettingsService);
 
         await sut.RunAsync(progressCollector);
 
@@ -262,8 +266,8 @@ public sealed class RunAnalysisServiceTests
         using var snapshotDocument = JsonDocument.Parse(await File.ReadAllTextAsync(snapshotPath));
         Assert.Equal("EU", snapshotDocument.RootElement.GetProperty("scope").GetString());
         Assert.True(snapshotDocument.RootElement.GetProperty("snapshot").TryGetProperty("purgedMarketData", out _));
-        Assert.Contains(progressCollector.Events, e => e is CalculationProfileSnapshotEvent { Scope: "Setup" });
-        Assert.Contains(progressCollector.Events, e => e is CalculationProfileCompletedEvent { Scope: "EU" });
+        Assert.Contains(progressCollector.Events, e => e is BuildPhasesStartEvent);
+        Assert.Contains(progressCollector.Events, e => e is EUCalculationCompleteEvent);
     }
 
     private static MarketCardData MarketData(
@@ -324,9 +328,22 @@ public sealed class RunAnalysisServiceTests
             => Task.CompletedTask;
     }
 
+    private static StubAppSettingsService BuildAppSettingsService(Dictionary<string, double> shippingByCountry)
+    {
+        return new StubAppSettingsService(new AppSettingsSnapshot
+        {
+            ShippingCosts = new ShippingCostsSettingsSnapshot
+            {
+                Default = 3.0,
+                Countries = shippingByCountry
+            }
+        });
+    }
+
     private sealed class StubMarketDataCacheService : IMarketDataCacheService
     {
         private readonly Dictionary<string, MarketCardData> _marketDataByUrl;
+        private bool _firstLookupReturnsMiss = true;
 
         public StubMarketDataCacheService(IEnumerable<MarketCardData> marketData)
         {
@@ -338,6 +355,14 @@ public sealed class RunAnalysisServiceTests
 
         public Task<MarketCardData?> GetAsync(ScrapingTarget target, CancellationToken cancellationToken = default)
         {
+            // Keep one synthetic cache miss so RunAnalysisService does not divide by zero
+            // when calculating scraping progress.
+            if (_firstLookupReturnsMiss)
+            {
+                _firstLookupReturnsMiss = false;
+                return Task.FromResult<MarketCardData?>(null);
+            }
+
             _marketDataByUrl.TryGetValue(target.ProductUrl, out var marketData);
             return Task.FromResult(marketData);
         }
@@ -361,6 +386,22 @@ public sealed class RunAnalysisServiceTests
             await Task.CompletedTask;
             yield break;
         }
+    }
+
+    private sealed class StubAppSettingsService : IAppSettingsService
+    {
+        private readonly AppSettingsSnapshot _snapshot;
+
+        public StubAppSettingsService(AppSettingsSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public Task<AppSettingsSnapshot> GetCurrentAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_snapshot);
+
+        public Task SaveAsync(AppSettingsSnapshot snapshot, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class RecordingHtmlReportGenerator : IHtmlReportGenerator

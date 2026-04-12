@@ -14,10 +14,11 @@ public sealed class UrlBuilderTests
     [Fact]
     public void SearchUrl_EncodesAndTrimsQuery()
     {
-        var result = UrlBuilder.SearchUrl("  Lightning Bolt  ");
+        var result = UrlBuilder.SearchUrl("  Lightning Bolt  ", 95);
 
+        Assert.Contains("idExpansion=95", result);
         Assert.Contains("searchString=Lightning+Bolt", result);
-        Assert.StartsWith("https://www.cardmarket.com/en/Magic/Products/Singles", result, StringComparison.Ordinal);
+        Assert.StartsWith("https://www.cardmarket.com/en/Magic/Products/Search", result, StringComparison.Ordinal);
     }
 
     [Fact]

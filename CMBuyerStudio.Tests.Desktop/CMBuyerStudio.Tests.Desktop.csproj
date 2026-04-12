@@ -23,15 +23,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Reference Include="CMBuyerStudio.Application">
-      <HintPath>..\CardmarketSellerFinder.Application\bin\Debug\net10.0\CMBuyerStudio.Application.dll</HintPath>
-    </Reference>
-    <Reference Include="CMBuyerStudio.Domain">
-      <HintPath>..\CardmarketSellerFinder.Domain\bin\Debug\net10.0\CMBuyerStudio.Domain.dll</HintPath>
-    </Reference>
-    <Reference Include="CMBuyerStudio.Desktop">
-      <HintPath>..\CMBuyerStudio.Desktop\bin\Debug\net10.0-windows\CMBuyerStudio.Desktop.dll</HintPath>
-    </Reference>
+    <ProjectReference Include="..\CardmarketSellerFinder.Application\CMBuyerStudio.Application.csproj" />
+    <ProjectReference Include="..\CardmarketSellerFinder.Domain\CMBuyerStudio.Domain.csproj" />
+    <ProjectReference Include="..\CMBuyerStudio.Desktop\CMBuyerStudio.Desktop.csproj" />
   </ItemGroup>
 
 </Project>

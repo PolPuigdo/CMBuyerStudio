@@ -15,8 +15,8 @@ public sealed class SearchViewModelTests
         var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository);
         var searchService = new StubCardSearchService(
         [
-            SearchResult("Lightning Bolt", "M11", "https://example/m11", 0.80m),
-            SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m)
+            SearchResult("Lightning Bolt", "M11", "https://example/m11", 0.80m, @"C:\cache\m11.jpg"),
+            SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m, @"C:\cache\alpha.jpg")
         ]);
         var wantedCardsService = new RecordingWantedCardsService();
         var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel)
@@ -35,6 +35,43 @@ public sealed class SearchViewModelTests
 
         Assert.Equal(2, sut.SelectedVariantsCount);
         Assert.True(sut.CanSaveSelection);
+    }
+
+    [Fact]
+    public async Task SearchCommand_PassesSelectedExpansionIdToService()
+    {
+        var wantedCardsRepository = new InMemoryWantedCardsRepository();
+        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository);
+        var searchService = new StubCardSearchService(
+        [
+            SearchResult("Swamp", "Shadowmoor", "https://example/shadowmoor", 0.25m)
+        ]);
+        var wantedCardsService = new RecordingWantedCardsService();
+        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel)
+        {
+            SearchText = "Swamp",
+            SelectedExpansion = new SearchExpansionOption(95, "Shadowmoor")
+        };
+
+        sut.SearchCommand.Execute(null);
+        await AsyncTestHelper.WaitUntilAsync(() => !sut.IsSearching);
+
+        Assert.Equal(95, searchService.LastExpansionId);
+    }
+
+    [Fact]
+    public void Constructor_LoadsExpansionCatalogAndDefaultsToAll()
+    {
+        var sut = new SearchViewModel(
+            new StubCardSearchService([]),
+            new RecordingWantedCardsService(),
+            new WantedCardsViewModel(new InMemoryWantedCardsRepository()));
+
+        Assert.NotEmpty(sut.Expansions);
+        Assert.Equal(0, sut.SelectedExpansion?.Id);
+        Assert.Contains(sut.Expansions, expansion =>
+            expansion.Id == 95 &&
+            string.Equals(expansion.Name, "Shadowmoor", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -70,8 +107,8 @@ public sealed class SearchViewModelTests
 
         var searchService = new StubCardSearchService(
         [
-            SearchResult("Lightning Bolt", "M11", "https://example/m11", 0.80m),
-            SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m)
+            SearchResult("Lightning Bolt", "M11", "https://example/m11", 0.80m, @"C:\cache\m11.jpg"),
+            SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m, @"C:\cache\alpha.jpg")
         ]);
         var wantedCardsService = new RecordingWantedCardsService();
         var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel)
@@ -92,33 +129,38 @@ public sealed class SearchViewModelTests
         Assert.Equal("Lightning Bolt", saved.CardName);
         Assert.Equal(3, saved.DesiredQuantity);
         Assert.Equal(2, saved.Variants.Count);
+        Assert.Contains(saved.Variants, variant => variant.SetName == "M11" && variant.ImagePath == @"C:\cache\m11.jpg");
+        Assert.Contains(saved.Variants, variant => variant.SetName == "Alpha" && variant.ImagePath == @"C:\cache\alpha.jpg");
         Assert.All(sut.Results, result => Assert.False(result.IsSelected));
         Assert.Equal(1, wantedCardsViewModel.TotalGroups);
         Assert.Equal("Counterspell", wantedCardsViewModel.Groups[0].CardName);
     }
 
-    private static SearchCardResult SearchResult(string cardName, string setName, string productUrl, decimal price)
+    private static SearchCardResult SearchResult(string cardName, string setName, string productUrl, decimal price, string imagePath = "")
     {
         return new SearchCardResult
         {
             CardName = cardName,
             SetName = setName,
             ProductUrl = productUrl,
-            Price = price
+            Price = price,
+            ImagePath = imagePath
         };
     }
 
     private sealed class StubCardSearchService : ICardSearchService
     {
         private readonly IReadOnlyList<SearchCardResult> _results;
+        public int LastExpansionId { get; private set; }
 
         public StubCardSearchService(IReadOnlyList<SearchCardResult> results)
         {
             _results = results;
         }
 
-        public Task<IReadOnlyList<SearchCardResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
+        public Task<IReadOnlyList<SearchCardResult>> SearchAsync(string query, int expansionId = 0, CancellationToken cancellationToken = default)
         {
+            LastExpansionId = expansionId;
             return Task.FromResult(_results);
         }
     }
@@ -161,7 +203,8 @@ public sealed class SearchViewModelTests
                     {
                         SetName = variant.SetName,
                         ProductUrl = variant.ProductUrl,
-                        Price = variant.Price
+                        Price = variant.Price,
+                        ImagePath = variant.ImagePath
                     }))
             };
         }
@@ -199,7 +242,8 @@ public sealed class SearchViewModelTests
                     {
                         SetName = variant.SetName,
                         ProductUrl = variant.ProductUrl,
-                        Price = variant.Price
+                        Price = variant.Price,
+                        ImagePath = variant.ImagePath
                     }))
             };
         }
