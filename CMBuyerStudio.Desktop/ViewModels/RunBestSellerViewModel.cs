@@ -82,6 +82,8 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         set => SetProperty(ref _canRun, value);
     }
 
+    public string RunButtonText => "Calculate Best Sellers";
+
     private bool _canCancel;
     public bool CanCancel
     {
@@ -129,10 +131,15 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 
         var progress = new Progress<RunProgressEvent>(HandleProgress);
 
-        await _runService.RunAsync(progress, _cts.Token);
-
-        CanRun = true;
-        CanCancel = false;
+        try
+        {
+            await _runService.RunAsync(progress, _cts.Token);
+        }
+        finally
+        {
+            CanRun = true;
+            CanCancel = false;
+        }
     }
 
     private void Cancel()
