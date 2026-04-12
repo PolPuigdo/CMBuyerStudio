@@ -2,21 +2,29 @@
 
 public abstract record RunProgressEvent;
 
-// Inicio
-public record RunStartedEvent(int TotalCards) : RunProgressEvent;
+// Start
+public record RunStartedEvent(int Progress = 0) : RunProgressEvent;
+
+// Cache
+public record RecoverCacheStartEvent(int Progress = 0) : RunProgressEvent;
+public record RecoverCacheCompletedEvent(int Progress = 0) : RunProgressEvent;
 
 // Scraping
-public record CardScrapingStartedEvent(string CardName, int Current, int Total) : RunProgressEvent;
-public record CardScrapedEvent(string CardName) : RunProgressEvent;
+public record CardScrapingStartedEvent(int Progress) : RunProgressEvent;
+public record CardScrapedEvent(int Progress) : RunProgressEvent;
 
-// Cálculo
-public record CalculationStartedEvent(string Scope) : RunProgressEvent; // EU / Local
-public record CalculationFinishedEvent(string Scope) : RunProgressEvent;
-public record CalculationProfileSnapshotEvent(string Scope, string Summary) : RunProgressEvent;
-public record CalculationProfileCompletedEvent(string Scope, string Summary) : RunProgressEvent;
+// Optimization
+public record BuildPhasesStartEvent() : RunProgressEvent;
 
-// Reportes
-public record ReportGeneratedEvent(string Path, string Scope) : RunProgressEvent;
+public record PurgeStartEvent(int Progress) : RunProgressEvent;
 
-// Final
-public record RunCompletedEvent() : RunProgressEvent;
+public record EUCalculationStartEvent(int Progress) : RunProgressEvent;
+public record EUCalculationCompleteEvent() : RunProgressEvent;
+
+public record LocalCalculationStartEvent(int Progress) : RunProgressEvent;
+public record LocalCalculationCompleteEvent() : RunProgressEvent;
+
+
+// Reports
+public record ReportStartEvent(int Progress) : RunProgressEvent;
+public record ReportGeneratedEvent(int Progress, string Path, string Scope) : RunProgressEvent;

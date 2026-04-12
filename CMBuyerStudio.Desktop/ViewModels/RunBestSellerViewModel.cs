@@ -129,42 +129,75 @@ public sealed class RunBestSellerViewModel : ViewModelBase
         switch (e)
         {
             case RunStartedEvent started:
-                ProgressMaximum = started.TotalCards;
-                ProgressValue = 0;
-                StatusText = "Starting...";
+                ProgressMaximum = 100;
+                ProgressValue = started.Progress;
+                StatusText = "Getting Target Cards...";
+                break;
+
+            case RecoverCacheStartEvent rcEvent:
+                ProgressValue = rcEvent.Progress;
+                StatusText = "Recovering Cache...";
+                break;
+
+            case RecoverCacheCompletedEvent rcEvent:
+                ProgressValue = rcEvent.Progress;
                 break;
 
             case CardScrapingStartedEvent scraping:
-                StatusText = $"Scraping {scraping.CardName} ({scraping.Current}/{scraping.Total})";
-                ProgressValue = scraping.Current;
+                StatusText = $"Scraping...";
+                ProgressValue = scraping.Progress;
                 SetStep("Scraping", StepStatus.Running);
                 break;
 
-            case CalculationStartedEvent calc:
-                StatusText = $"Calculating {calc.Scope}...";
-                SetStep($"{calc.Scope} Calculation", StepStatus.Running);
+            case CardScrapedEvent scraping:
+                ProgressValue = scraping.Progress;
+                SetStep("Scraping", StepStatus.Completed);
                 break;
 
-            case CalculationProfileSnapshotEvent profileSnapshot:
-                DetailText = profileSnapshot.Summary;
+            case BuildPhasesStartEvent:
+                StatusText = $"Building Phases...";
                 break;
 
-            case CalculationProfileCompletedEvent profileCompleted:
-                DetailText = profileCompleted.Summary;
+
+            case PurgeStartEvent purge:
+                StatusText = $"Purging Sellers...";
+                ProgressValue = purge.Progress;
                 break;
 
-            case CalculationFinishedEvent calc:
-                SetStep($"{calc.Scope} Calculation", StepStatus.Completed);
+            case EUCalculationStartEvent euCalc:
+                StatusText = $"Calculation Best Seller (Europe)...";
+                ProgressValue = euCalc.Progress;
+                SetStep("EU Calculation", StepStatus.Running);
+                break;
+
+            case EUCalculationCompleteEvent euCalc:
+                SetStep("EU Calculation", StepStatus.Completed);
+                break;
+
+            case LocalCalculationStartEvent localCalc:
+                StatusText = $"Calculation Best Seller (Local)...";
+                ProgressValue = localCalc.Progress;
+                SetStep("Local Calculation", StepStatus.Running);
+                break;
+
+            case LocalCalculationCompleteEvent euCalc:
+                SetStep("Local Calculation", StepStatus.Completed);
+                break;
+
+            case ReportStartEvent report:
+                ProgressValue = report.Progress;
+                StatusText = "Generating Reports...";
+                SetStep("Reports", StepStatus.Running);
                 break;
 
             case ReportGeneratedEvent generatedReport:
-                SetStep("Reports", StepStatus.Running);
                 RegisterGeneratedReport(generatedReport);
-                break;
-
-            case RunCompletedEvent:
-                StatusText = "Completed!";
-                SetStep("Reports", StepStatus.Completed);
+                ProgressValue = generatedReport.Progress;
+                StatusText = "Done!";
+                if (generatedReport.Progress == 100)
+                {
+                    SetStep("Reports", StepStatus.Completed);
+                }
                 break;
         }
     }

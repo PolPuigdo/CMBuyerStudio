@@ -31,6 +31,11 @@ namespace CMBuyerStudio.Application.Services
         private readonly decimal _defaultShippingCost;
         private readonly Dictionary<string, decimal> _shippingCostByCountryCode;
 
+        private readonly SemaphoreSlim _lock = new(1, 1);
+
+        private int _currentScrapeProgress;
+        private double _percentForScrap;
+
         public RunAnalysisService(
             IWantedCardsRepository wantedCardsRepository,
             IMarketDataCacheService marketDataCacheService,
@@ -52,14 +57,29 @@ namespace CMBuyerStudio.Application.Services
             _shippingCostByCountryCode = BuildShippingByCountryCode(shippingOptions.Value.Countries);
         }
 
+        private async Task CalculateScrapPercentage(IProgress<RunProgressEvent> progress)
+        {
+            await _lock.WaitAsync();
+            try
+            {
+                _currentScrapeProgress = (int)Math.Round(_currentScrapeProgress + _percentForScrap);
+                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress));
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
 
         public async Task RunAsync(IProgress<RunProgressEvent> progress, CancellationToken cancellationToken = default)
         {
+            progress.Report(new RunStartedEvent(0));
+
             // Get cards from cards.json
             var wantedCards = await _wantedCardsRepository.GetAllAsync(cancellationToken);
-            progress.Report(new RunStartedEvent(wantedCards.Count));
-
             var scrapingTargets = BuildScrapingTargets(wantedCards);
+
+            progress.Report(new RecoverCacheStartEvent(1));
 
             // Check cache for each card
             var cachedMarketData = new List<MarketCardData>();
@@ -81,6 +101,10 @@ namespace CMBuyerStudio.Application.Services
                 }
             }
 
+            progress.Report(new CardScrapingStartedEvent(3));
+
+            _percentForScrap = 77/targetsToScrape.Count;
+
             // Scrap not cached cards
             var scrapedMarketData = new List<MarketCardData>();
 
@@ -88,7 +112,11 @@ namespace CMBuyerStudio.Application.Services
             //{
             //    scrapedMarketData.Add(marketData);
             //    await _marketDataCacheService.SaveAsync(marketData, cancellationToken);
+            //    await CalculateScrapPercentage(progress);
             //}
+
+            progress.Report(new CardScrapedEvent(80));
+            progress.Report(new BuildPhasesStartEvent());
 
             //Merge cached and scraped data
             var allMarketData = cachedMarketData.Concat(scrapedMarketData).ToList();
@@ -124,34 +152,37 @@ namespace CMBuyerStudio.Application.Services
                     ["offersAfterFrontierTrim"] = compactedAnalysis.OffersAfterFrontierTrim
                 }
             };
-            progress.Report(new CalculationProfileSnapshotEvent(
-                "Setup",
-                $"cards {compactedAnalysis.MarketData.Count} | offers {compactedAnalysis.OffersBefore}->{compactedAnalysis.OffersAfterFrontierTrim} after compaction"));
+
+            progress.Report(new PurgeStartEvent(82));
 
             // Purge useless sellers
             var euPreparation = BuildPurgedScopeSnapshot(compactedAnalysis.MarketData, SellerScopeMode.Eu);
             var localPreparation = BuildPurgedScopeSnapshot(compactedAnalysis.MarketData, SellerScopeMode.Local);
             var sharedSetupPhases = new List<OptimizationPhaseProfile> { analysisBuildPhase, compactionPhase };
 
+            progress.Report(new EUCalculationStartEvent(84));
+
             cancellationToken.ThrowIfCancellationRequested();
-            progress.Report(new CalculationStartedEvent("EU"));
-            progress.Report(new CalculationProfileSnapshotEvent("EU", BuildPreparationSummary("EU", euPreparation)));
+
             var euOptimizationRawResult = _purchaseOptimizer.Optimize(euPreparation.Snapshot);
             var euOptimizationResult = AttachRunProfile(
                 euOptimizationRawResult,
                 BuildRunProfile("EU", [.. sharedSetupPhases, .. euPreparation.ProfilePhases], euOptimizationRawResult.ProfilePhases));
-            progress.Report(new CalculationProfileCompletedEvent("EU", BuildCompletionSummary(euOptimizationResult.RunProfile!)));
-            progress.Report(new CalculationFinishedEvent("EU"));
+
+            progress.Report(new EUCalculationCompleteEvent());
 
             cancellationToken.ThrowIfCancellationRequested();
-            progress.Report(new CalculationStartedEvent("Local"));
-            progress.Report(new CalculationProfileSnapshotEvent("Local", BuildPreparationSummary("Local", localPreparation)));
+
+            progress.Report(new LocalCalculationStartEvent(90));
+
             var localOptimizationRawResult = _purchaseOptimizer.Optimize(localPreparation.Snapshot);
             var localOptimizationResult = AttachRunProfile(
                 localOptimizationRawResult,
                 BuildRunProfile("Local", [.. sharedSetupPhases, .. localPreparation.ProfilePhases], localOptimizationRawResult.ProfilePhases));
-            progress.Report(new CalculationProfileCompletedEvent("Local", BuildCompletionSummary(localOptimizationResult.RunProfile!)));
-            progress.Report(new CalculationFinishedEvent("Local"));
+
+            progress.Report(new LocalCalculationCompleteEvent());
+
+            progress.Report(new ReportStartEvent(96));
 
             var reportGeneratedAt = DateTimeOffset.Now;
             await WriteProfilesAsync(reportGeneratedAt, [euOptimizationResult.RunProfile!, localOptimizationResult.RunProfile!], cancellationToken);
@@ -171,7 +202,7 @@ namespace CMBuyerStudio.Application.Services
                     GeneratedAt = reportGeneratedAt
                 },
                 cancellationToken);
-            progress.Report(new ReportGeneratedEvent(euReport.Path, GetScopeLabel(euReport.Scope)));
+            progress.Report(new ReportGeneratedEvent(98, euReport.Path, GetScopeLabel(euReport.Scope)));
 
             var localReport = await _htmlReportGenerator.GenerateAsync(
                 new HtmlReportRequest
@@ -182,9 +213,7 @@ namespace CMBuyerStudio.Application.Services
                     GeneratedAt = reportGeneratedAt
                 },
                 cancellationToken);
-            progress.Report(new ReportGeneratedEvent(localReport.Path, GetScopeLabel(localReport.Scope)));
-
-            progress.Report(new RunCompletedEvent());
+            progress.Report(new ReportGeneratedEvent(100, localReport.Path, GetScopeLabel(localReport.Scope)));
         }
 
         private static IReadOnlyList<ScrapingTarget> BuildScrapingTargets(IEnumerable<WantedCardGroup> wantedCards)
