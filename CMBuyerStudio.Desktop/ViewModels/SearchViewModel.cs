@@ -220,7 +220,8 @@ public sealed class SearchViewModel : ViewModelBase
                 {
                     SetName = v.SetName,
                     ProductUrl = v.ProductUrl,
-                    Price = v.Price
+                    Price = v.Price,
+                    ImagePath = v.ImagePath
                 })
                 .ToList();
 

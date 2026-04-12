@@ -3,9 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:converters="clr-namespace:CMBuyerStudio.Desktop.Converters"
              xmlns:viewModels="clr-namespace:CMBuyerStudio.Desktop.ViewModels"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=viewModels:WantedCardsViewModel}">
+
+    <UserControl.Resources>
+        <converters:ImagePathToCardImageSourceConverter x:Key="ImagePathToCardImageSourceConverter"/>
+    </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -134,30 +139,42 @@
                                                     BorderBrush="{StaticResource BrushBorder}"
                                                     BorderThickness="1"
                                                     CornerRadius="12"
-                                                    Padding="14"
+                                                    Padding="8,10,14,10"
                                                     Margin="0,0,0,10">
 
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="8"/>
                                                         <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="12"/>
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
 
+                                                    <Border Style="{StaticResource CardImageContainerStyle}"
+                                                            Width="48"
+                                                            Height="68"
+                                                            VerticalAlignment="Center">
+                                                        <Image Source="{Binding ImagePath, Converter={StaticResource ImagePathToCardImageSourceConverter}}"
+                                                               Stretch="Uniform"/>
+                                                    </Border>
+
                                                     <!-- SET INFO -->
-                                                    <StackPanel>
+                                                    <StackPanel Grid.Column="2"
+                                                                VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding SetName}"
                                                                    Foreground="{StaticResource BrushTextPrimary}"
                                                                    FontSize="16"
                                                                    FontWeight="SemiBold"/>
 
-                                                        <TextBlock Text="{Binding Price, StringFormat=Price preview: {0} €}"
+                                                        <TextBlock Text="{Binding Price, StringFormat=Price from: {0} €}"
                                                                    Margin="0,4,0,0"
                                                                    Foreground="{StaticResource BrushTextSecondary}"
                                                                    FontSize="13"/>
                                                     </StackPanel>
 
                                                     <!-- REMOVE -->
-                                                    <Button Grid.Column="1"
+                                                    <Button Grid.Column="4"
                                                             Content="Remove"
                                                             Command="{Binding DataContext.RemoveVariantCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding}"
@@ -196,7 +213,7 @@
 
                 <StackPanel Orientation="Horizontal"
                             VerticalAlignment="Center">
-                    <TextBlock Text="Total wanted groups:"
+                    <TextBlock Text="Total Cards: "
                                Foreground="{StaticResource BrushTextSecondary}"
                                FontSize="14"
                                VerticalAlignment="Center"/>

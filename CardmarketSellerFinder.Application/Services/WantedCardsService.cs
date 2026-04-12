@@ -41,7 +41,8 @@ public sealed class WantedCardsService : IWantedCardsService
                     {
                         SetName = incomingVariant.SetName,
                         ProductUrl = incomingVariant.ProductUrl,
-                        Price = incomingVariant.Price
+                        Price = incomingVariant.Price,
+                        ImagePath = incomingVariant.ImagePath
                     });
                 }
             }
@@ -96,7 +97,8 @@ public sealed class WantedCardsService : IWantedCardsService
                 {
                     SetName = v.SetName,
                     ProductUrl = v.ProductUrl,
-                    Price = v.Price
+                    Price = v.Price,
+                    ImagePath = v.ImagePath
                 }))
         };
     }
