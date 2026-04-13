@@ -6,6 +6,7 @@
         Title="CMBuyerStudio"
         Height="900"
         Width="1400"
+        Icon="/Assets/CMBuyerStudio_ICON.ico"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         ResizeMode="CanResize"
