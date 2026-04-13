@@ -2,6 +2,7 @@ using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Common.Options;
 using CMBuyerStudio.Application.Optimization;
 using CMBuyerStudio.Application.Services;
+using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
 using CMBuyerStudio.Domain.Market;
@@ -26,6 +27,8 @@ public static class ServiceRegistration
 {
     public static IServiceCollection AddDesktop(this IServiceCollection services)
     {
+        services.AddSingleton<IUserFeedbackService, UserFeedbackService>();
+
         services.AddSingleton<SearchViewModel>();
         services.AddSingleton<WantedCardsViewModel>();
         services.AddSingleton<RunBestSellerViewModel>();

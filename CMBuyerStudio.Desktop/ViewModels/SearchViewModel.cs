@@ -1,5 +1,6 @@
-﻿using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Domain.Search;
 using CMBuyerStudio.Domain.WantedCards;
 using System.Collections.ObjectModel;
@@ -16,6 +17,7 @@ public sealed class SearchViewModel : ViewModelBase
     private readonly ICardSearchService _cardSearchService;
     private readonly IWantedCardsService _wantedCardsService;
     private readonly WantedCardsViewModel _wantedCardsViewModel;
+    private readonly IUserFeedbackService _userFeedbackService;
 
     private string _searchText = string.Empty;
     private SearchExpansionOption? _selectedExpansion;
@@ -100,11 +102,13 @@ public sealed class SearchViewModel : ViewModelBase
     public SearchViewModel(
         ICardSearchService cardSearchService,
         IWantedCardsService wantedCardsService,
-        WantedCardsViewModel wantedCardsViewModel)
+        WantedCardsViewModel wantedCardsViewModel,
+        IUserFeedbackService userFeedbackService)
     {
         _cardSearchService = cardSearchService;
         _wantedCardsService = wantedCardsService;
         _wantedCardsViewModel = wantedCardsViewModel;
+        _userFeedbackService = userFeedbackService;
         foreach (var expansion in SearchExpansionCatalog.Load())
         {
             Expansions.Add(expansion);
@@ -264,6 +268,7 @@ public sealed class SearchViewModel : ViewModelBase
             }
 
             RefreshSelectionState();
+            _userFeedbackService.NotifySuccess("Selection saved successfully.");
         }
         finally
         {

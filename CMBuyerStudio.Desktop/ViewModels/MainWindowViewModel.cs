@@ -1,19 +1,33 @@
-﻿using System.Windows.Input;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Input;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.Feedback;
 
 namespace CMBuyerStudio.Desktop.ViewModels;
 
 public sealed class MainWindowViewModel : ViewModelBase
 {
+    private readonly IUserFeedbackService _userFeedbackService;
+    private readonly SynchronizationContext? _synchronizationContext;
+
     private ViewModelBase _currentViewModel;
+    private bool _isToastVisible;
+    private string _toastMessage = string.Empty;
+    private ToastNotificationKind _toastKind = ToastNotificationKind.Success;
+    private int _toastVersion;
 
     public MainWindowViewModel(
         SearchViewModel searchViewModel,
         WantedCardsViewModel wantedCardsViewModel,
         RunBestSellerViewModel runBestSellerViewModel,
         SettingsViewModel settingsViewModel,
-        LogsViewModel logsViewModel)
+        LogsViewModel logsViewModel,
+        IUserFeedbackService userFeedbackService)
     {
+        _userFeedbackService = userFeedbackService;
+        _synchronizationContext = SynchronizationContext.Current;
+
         SearchViewModel = searchViewModel;
         WantedCardsViewModel = wantedCardsViewModel;
         RunBestSellerViewModel = runBestSellerViewModel;
@@ -27,6 +41,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         ShowLogsCommand = new RelayCommand(_ => CurrentViewModel = LogsViewModel);
 
         _currentViewModel = SearchViewModel;
+
+        _userFeedbackService.ToastNotified += OnToastNotified;
     }
 
     public SearchViewModel SearchViewModel { get; }
@@ -48,9 +64,73 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public bool IsToastVisible
+    {
+        get => _isToastVisible;
+        private set => SetProperty(ref _isToastVisible, value);
+    }
+
+    public string ToastMessage
+    {
+        get => _toastMessage;
+        private set => SetProperty(ref _toastMessage, value);
+    }
+
+    public ToastNotificationKind ToastKind
+    {
+        get => _toastKind;
+        private set => SetProperty(ref _toastKind, value);
+    }
+
     public ICommand ShowSearchCommand { get; }
     public ICommand ShowWantedCardsCommand { get; }
     public ICommand ShowRunBestSellerCommand { get; }
     public ICommand ShowSettingsCommand { get; }
     public ICommand ShowLogsCommand { get; }
+
+    private void OnToastNotified(object? sender, ToastNotification toast)
+    {
+        if (string.IsNullOrWhiteSpace(toast.Message))
+        {
+            return;
+        }
+
+        RunOnUiThread(() =>
+        {
+            ToastMessage = toast.Message;
+            ToastKind = toast.Kind;
+            IsToastVisible = true;
+
+            _toastVersion++;
+            var currentToastVersion = _toastVersion;
+            _ = HideToastAfterDelayAsync(currentToastVersion, toast.DurationMs);
+        });
+    }
+
+    private async Task HideToastAfterDelayAsync(int toastVersion, int durationMs)
+    {
+        var normalizedDuration = durationMs > 0 ? durationMs : 2500;
+        await Task.Delay(normalizedDuration);
+
+        RunOnUiThread(() =>
+        {
+            if (toastVersion != _toastVersion)
+            {
+                return;
+            }
+
+            IsToastVisible = false;
+        });
+    }
+
+    private void RunOnUiThread(Action action)
+    {
+        if (_synchronizationContext is null || ReferenceEquals(SynchronizationContext.Current, _synchronizationContext))
+        {
+            action();
+            return;
+        }
+
+        _synchronizationContext.Post(_ => action(), null);
+    }
 }

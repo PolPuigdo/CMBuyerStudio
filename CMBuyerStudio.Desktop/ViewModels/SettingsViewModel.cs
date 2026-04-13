@@ -1,6 +1,7 @@
 using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Models;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.Feedback;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
@@ -13,6 +14,7 @@ namespace CMBuyerStudio.Desktop.ViewModels;
 public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly IAppSettingsService _appSettingsService;
+    private readonly IUserFeedbackService _userFeedbackService;
     private readonly RelayCommand _saveCommand;
     private readonly Dictionary<string, double> _additionalShippingCountries = new(StringComparer.OrdinalIgnoreCase);
 
@@ -34,9 +36,10 @@ public sealed class SettingsViewModel : ViewModelBase
     private int _currentMaxConcurrentWorkers = 10;
     private string _currentUrlProxyChecker = string.Empty;
 
-    public SettingsViewModel(IAppSettingsService appSettingsService)
+    public SettingsViewModel(IAppSettingsService appSettingsService, IUserFeedbackService userFeedbackService)
     {
         _appSettingsService = appSettingsService;
+        _userFeedbackService = userFeedbackService;
 
         SellerCountryOptions = new ObservableCollection<SelectableOptionViewModel>(
             SettingsCatalog.SellerCountries.Select(item => new SelectableOptionViewModel(item.Id, item.Name)));
@@ -240,6 +243,7 @@ public sealed class SettingsViewModel : ViewModelBase
 
             IsDirty = false;
             StatusMessage = "Settings saved.";
+            _userFeedbackService.NotifySuccess("Settings saved successfully.");
         }
         catch (Exception ex)
         {

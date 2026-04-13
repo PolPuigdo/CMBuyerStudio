@@ -11,7 +11,8 @@ public sealed class SettingsViewModelTests
     public async Task Constructor_LoadsSnapshotIntoEditableState()
     {
         var service = new RecordingAppSettingsService(BuildSnapshot());
-        var sut = new SettingsViewModel(service);
+        var feedbackService = new FakeUserFeedbackService();
+        var sut = new SettingsViewModel(service, feedbackService);
 
         await AsyncTestHelper.WaitUntilAsync(() => !sut.IsLoading);
 
@@ -33,7 +34,8 @@ public sealed class SettingsViewModelTests
     public async Task SaveCommand_PersistsSnapshotWithCatalogOrderedCsvAndResetsDirtyFlag()
     {
         var service = new RecordingAppSettingsService(BuildSnapshot());
-        var sut = new SettingsViewModel(service);
+        var feedbackService = new FakeUserFeedbackService();
+        var sut = new SettingsViewModel(service, feedbackService);
 
         await AsyncTestHelper.WaitUntilAsync(() => !sut.IsLoading);
 
@@ -65,6 +67,8 @@ public sealed class SettingsViewModelTests
         Assert.Equal(4, saved.Scraping.MinCondition);
         Assert.Contains(saved.Scraping.Proxies, proxy => proxy.Server == "http://127.0.0.1:8080");
         Assert.False(sut.IsDirty);
+        Assert.Single(feedbackService.Notifications);
+        Assert.Equal("Settings saved successfully.", feedbackService.Notifications[0].Message);
     }
 
     private static AppSettingsSnapshot BuildSnapshot()

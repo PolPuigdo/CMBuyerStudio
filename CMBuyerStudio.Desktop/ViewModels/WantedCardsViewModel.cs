@@ -1,5 +1,6 @@
-﻿using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Domain.WantedCards;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -13,6 +14,7 @@ namespace CMBuyerStudio.Desktop.ViewModels;
 public class WantedCardsViewModel : ViewModelBase
 {
     private readonly IWantedCardsRepository _wantedCardsRepository;
+    private readonly IUserFeedbackService _userFeedbackService;
     private bool _isInitializing;
 
     public ObservableCollection<WantedCardGroup> Groups { get; set; } = new();
@@ -23,9 +25,10 @@ public class WantedCardsViewModel : ViewModelBase
     public ICommand DeleteGroupCommand { get; }
     public ICommand ClearAllCommand { get; }
 
-    public WantedCardsViewModel(IWantedCardsRepository wantedCardsRepository)
+    public WantedCardsViewModel(IWantedCardsRepository wantedCardsRepository, IUserFeedbackService userFeedbackService)
     {
         _wantedCardsRepository = wantedCardsRepository;
+        _userFeedbackService = userFeedbackService;
 
         RemoveVariantCommand = new RelayCommand(p => RemoveVariant(p));
         DeleteGroupCommand = new RelayCommand(p => DeleteGroup(p));
@@ -128,12 +131,23 @@ public class WantedCardsViewModel : ViewModelBase
         if (group == null)
             return;
 
+        var setName = string.IsNullOrWhiteSpace(variant.SetName) ? "Unknown set" : variant.SetName.Trim();
+        var cardName = string.IsNullOrWhiteSpace(group.CardName) ? "Unknown card" : group.CardName.Trim();
+        var confirmDelete = _userFeedbackService.Confirm(
+            $"Are you sure you want to delete variant \"{setName}\" from \"{cardName}\"?",
+            "Delete variant");
+
+        if (!confirmDelete)
+            return;
+
         group.Variants.Remove(variant);
 
         if (group.Variants.Count == 0)
         {
             Groups.Remove(group);
         }
+
+        _userFeedbackService.NotifySuccess($"Variant \"{setName}\" deleted successfully.");
     }
 
     private void DeleteGroup(object? parameter)
@@ -141,12 +155,33 @@ public class WantedCardsViewModel : ViewModelBase
         if (parameter is not WantedCardGroup group)
             return;
 
+        var cardName = string.IsNullOrWhiteSpace(group.CardName) ? "Unknown card" : group.CardName.Trim();
+        var confirmDelete = _userFeedbackService.Confirm(
+            $"Are you sure you want to delete card \"{cardName}\" and all its variants?",
+            "Delete card");
+
+        if (!confirmDelete)
+            return;
+
         Groups.Remove(group);
+        _userFeedbackService.NotifySuccess($"Card \"{cardName}\" deleted successfully.");
     }
 
     private void ClearAll()
     {
+        var totalGroups = Groups.Count;
+        if (totalGroups == 0)
+            return;
+
+        var confirmDelete = _userFeedbackService.Confirm(
+            $"Are you sure you want to delete all wanted cards ({totalGroups} groups)?",
+            "Delete all wanted cards");
+
+        if (!confirmDelete)
+            return;
+
         Groups.Clear();
+        _userFeedbackService.NotifySuccess("All wanted cards deleted successfully.");
     }
 
     //public void AddOrMergeGroup(WantedCardGroup incomingGroup)

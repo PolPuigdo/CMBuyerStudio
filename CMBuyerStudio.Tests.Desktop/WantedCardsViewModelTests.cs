@@ -11,11 +11,12 @@ public sealed class WantedCardsViewModelTests
     [Fact]
     public async Task InitializeAsync_LoadsGroupsWithoutSaving()
     {
+        var feedbackService = new FakeUserFeedbackService();
         var repository = new InMemoryWantedCardsRepository(
         [
             Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m))
         ]);
-        var sut = new WantedCardsViewModel(repository);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
 
         await sut.InitializeAsync();
 
@@ -27,11 +28,12 @@ public sealed class WantedCardsViewModelTests
     [Fact]
     public async Task ChangingDesiredQuantity_TriggersSave()
     {
+        var feedbackService = new FakeUserFeedbackService();
         var repository = new InMemoryWantedCardsRepository(
         [
             Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m))
         ]);
-        var sut = new WantedCardsViewModel(repository);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
         await sut.InitializeAsync();
 
         sut.Groups[0].DesiredQuantity = 5;
@@ -41,13 +43,39 @@ public sealed class WantedCardsViewModelTests
     }
 
     [Fact]
-    public async Task RemoveVariantCommand_RemovesEmptyGroupAndPersists()
+    public async Task RemoveVariantCommand_WhenConfirmationRejected_DoesNotMutateOrPersist()
     {
+        var feedbackService = new FakeUserFeedbackService();
+        feedbackService.EnqueueConfirmResult(false);
+
         var repository = new InMemoryWantedCardsRepository(
         [
             Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m))
         ]);
-        var sut = new WantedCardsViewModel(repository);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
+        await sut.InitializeAsync();
+        var variant = sut.Groups[0].Variants[0];
+
+        sut.RemoveVariantCommand.Execute(variant);
+
+        await Task.Delay(120);
+        Assert.Single(sut.Groups);
+        Assert.Single(sut.Groups[0].Variants);
+        Assert.Equal(0, repository.SaveCallCount);
+        Assert.Empty(feedbackService.Notifications);
+    }
+
+    [Fact]
+    public async Task RemoveVariantCommand_WhenConfirmed_RemovesEmptyGroupPersistsAndNotifies()
+    {
+        var feedbackService = new FakeUserFeedbackService();
+        feedbackService.EnqueueConfirmResult(true);
+
+        var repository = new InMemoryWantedCardsRepository(
+        [
+            Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m))
+        ]);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
         await sut.InitializeAsync();
         var variant = sut.Groups[0].Variants[0];
 
@@ -57,17 +85,45 @@ public sealed class WantedCardsViewModelTests
         Assert.Empty(sut.Groups);
         Assert.Equal(0, sut.TotalGroups);
         Assert.Empty(repository.LastSavedSnapshot!);
+        Assert.Single(feedbackService.Notifications);
+        Assert.Equal("Variant \"Alpha\" deleted successfully.", feedbackService.Notifications[0].Message);
     }
 
     [Fact]
-    public async Task DeleteGroupAndClearAll_KeepTotalGroupsInSync()
+    public async Task DeleteGroupCommand_WhenConfirmationRejected_DoesNotMutateOrPersist()
     {
+        var feedbackService = new FakeUserFeedbackService();
+        feedbackService.EnqueueConfirmResult(false);
+
         var repository = new InMemoryWantedCardsRepository(
         [
             Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m)),
             Group("Counterspell", 1, Variant("Ice Age", "https://example/ice-age", 0.50m))
         ]);
-        var sut = new WantedCardsViewModel(repository);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
+        await sut.InitializeAsync();
+
+        sut.DeleteGroupCommand.Execute(sut.Groups[0]);
+
+        await Task.Delay(120);
+        Assert.Equal(2, sut.TotalGroups);
+        Assert.Equal(0, repository.SaveCallCount);
+        Assert.Empty(feedbackService.Notifications);
+    }
+
+    [Fact]
+    public async Task DeleteGroupAndClearAll_WhenConfirmed_KeepTotalGroupsInSyncAndNotify()
+    {
+        var feedbackService = new FakeUserFeedbackService();
+        feedbackService.EnqueueConfirmResult(true);
+        feedbackService.EnqueueConfirmResult(true);
+
+        var repository = new InMemoryWantedCardsRepository(
+        [
+            Group("Lightning Bolt", 2, Variant("Alpha", "https://example/alpha", 1.20m)),
+            Group("Counterspell", 1, Variant("Ice Age", "https://example/ice-age", 0.50m))
+        ]);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
         await sut.InitializeAsync();
 
         sut.DeleteGroupCommand.Execute(sut.Groups[0]);
@@ -79,6 +135,25 @@ public sealed class WantedCardsViewModelTests
         await AsyncTestHelper.WaitUntilAsync(() => repository.SaveCallCount >= 2);
         Assert.Empty(sut.Groups);
         Assert.Equal(0, sut.TotalGroups);
+        Assert.Equal(2, feedbackService.Notifications.Count);
+        Assert.Equal("Card \"Lightning Bolt\" deleted successfully.", feedbackService.Notifications[0].Message);
+        Assert.Equal("All wanted cards deleted successfully.", feedbackService.Notifications[1].Message);
+    }
+
+    [Fact]
+    public async Task ClearAllCommand_WhenNoGroups_DoesNothing()
+    {
+        var feedbackService = new FakeUserFeedbackService();
+        var repository = new InMemoryWantedCardsRepository([]);
+        var sut = new WantedCardsViewModel(repository, feedbackService);
+        await sut.InitializeAsync();
+
+        sut.ClearAllCommand.Execute(null);
+
+        await Task.Delay(120);
+        Assert.Empty(feedbackService.ConfirmCalls);
+        Assert.Empty(feedbackService.Notifications);
+        Assert.Equal(0, repository.SaveCallCount);
     }
 
     private static WantedCardGroup Group(string cardName, int quantity, params WantedCardVariant[] variants)

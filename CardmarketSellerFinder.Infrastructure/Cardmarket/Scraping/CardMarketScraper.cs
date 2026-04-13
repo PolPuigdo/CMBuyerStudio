@@ -14,7 +14,7 @@ namespace CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
 public class CardMarketScraper : ICardMarketScraper
 {
     private const decimal PriceMaxNum = 0.50m;
-    private const decimal PriceMaxPercent = 10m;
+    private const decimal PriceMaxPercent = 50m;
     private const int LoadMoreMaxClicks = 5;
     private const int LoadMoreRowsWait = 5000;
     private const int MaxScrapeAttemptsPerTarget = 3;
