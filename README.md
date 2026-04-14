@@ -1,4 +1,4 @@
-# CMBuyerStudio
+# <img width="54" height="54" alt="CMBuyerStudio_ICON_PNG" src="https://github.com/user-attachments/assets/3b5a29f5-621f-4ddc-bc63-976a76d39c81" /> CMBuyerStudio
 
 > Your assistant for smarter **Magic: The Gathering** buying on **Cardmarket**.
 
