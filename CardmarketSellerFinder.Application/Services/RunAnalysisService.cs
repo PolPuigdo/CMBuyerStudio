@@ -58,7 +58,7 @@ namespace CMBuyerStudio.Application.Services
             try
             {
                 _currentScrapeProgress = (int)Math.Round(_currentScrapeProgress + _percentForScrap);
-                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress+3));
+                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress+5));
             }
             finally
             {
@@ -100,14 +100,14 @@ namespace CMBuyerStudio.Application.Services
                 }
             }
 
-            progress.Report(new CardScrapingStartedEvent(3));
+            progress.Report(new ProxyCheckStartEvent(3));
 
             _percentForScrap = 77/targetsToScrape.Count;
 
             // Scrap not cached cards
             var scrapedMarketData = new List<MarketCardData>();
 
-            await foreach (var marketData in _cardMarketScraper.ScrapeManyAsync(targetsToScrape, cancellationToken))
+            await foreach (var marketData in _cardMarketScraper.ScrapeManyAsync(targetsToScrape, progress, cancellationToken))
             {
                 scrapedMarketData.Add(marketData);
                 await _marketDataCacheService.SaveAsync(marketData, cancellationToken);

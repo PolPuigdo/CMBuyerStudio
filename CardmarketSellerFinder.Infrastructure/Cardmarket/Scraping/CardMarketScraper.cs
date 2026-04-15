@@ -1,4 +1,5 @@
 using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Infrastructure.Cardmarket.Helpers;
 using CMBuyerStudio.Infrastructure.Cardmarket.Parsing;
@@ -95,6 +96,7 @@ public class CardMarketScraper : ICardMarketScraper
 
     public async IAsyncEnumerable<MarketCardData> ScrapeManyAsync(
         IEnumerable<ScrapingTarget> targets,
+        IProgress<RunProgressEvent> progress,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(targets);
@@ -128,6 +130,8 @@ public class CardMarketScraper : ICardMarketScraper
 
         var scrapingOptions = await BuildScrapingOptionsAsync(cancellationToken);
         var workingProxies = await _playwrightProxyService.GetWorkingProxiesAsync(cancellationToken);
+
+        progress.Report(new CardScrapingStartedEvent(5));
 
         foreach (var target in targetList)
         {

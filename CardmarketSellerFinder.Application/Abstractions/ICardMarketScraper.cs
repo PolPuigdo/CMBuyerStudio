@@ -1,7 +1,5 @@
-﻿using CMBuyerStudio.Domain.Market;
-using System;
-using System.Collections.Generic;
-using System.Text;
+﻿using CMBuyerStudio.Application.RunAnalysis;
+using CMBuyerStudio.Domain.Market;
 
 namespace CMBuyerStudio.Application.Abstractions
 {
@@ -9,6 +7,6 @@ namespace CMBuyerStudio.Application.Abstractions
     {
         Task<MarketCardData> ScrapeAsync(ScrapingTarget target, CancellationToken cancellationToken = default);
 
-        IAsyncEnumerable<MarketCardData> ScrapeManyAsync(IEnumerable<ScrapingTarget> targets, CancellationToken cancellationToken = default);
+        IAsyncEnumerable<MarketCardData> ScrapeManyAsync(IEnumerable<ScrapingTarget> targets, IProgress<RunProgressEvent> progress, CancellationToken cancellationToken = default);
     }
 }

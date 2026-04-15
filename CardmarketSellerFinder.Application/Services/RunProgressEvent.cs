@@ -9,6 +9,9 @@ public record RunStartedEvent(int Progress = 0) : RunProgressEvent;
 public record RecoverCacheStartEvent(int Progress = 0) : RunProgressEvent;
 public record RecoverCacheCompletedEvent(int Progress = 0) : RunProgressEvent;
 
+//Proxies
+public record ProxyCheckStartEvent(int Progress) : RunProgressEvent;
+
 // Scraping
 public record CardScrapingStartedEvent(int Progress) : RunProgressEvent;
 public record CardScrapedEvent(int Progress) : RunProgressEvent;

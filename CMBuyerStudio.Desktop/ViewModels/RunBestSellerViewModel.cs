@@ -204,6 +204,11 @@ public sealed class RunBestSellerViewModel : ViewModelBase
                 ProgressValue = rcEvent.Progress;
                 break;
 
+            case ProxyCheckStartEvent scraping:
+                StatusText = $"Checking Available Connection Proxies...";
+                ProgressValue = scraping.Progress;
+                break;
+
             case CardScrapingStartedEvent scraping:
                 StatusText = $"Scraping...";
                 ProgressValue = scraping.Progress;
@@ -218,7 +223,6 @@ public sealed class RunBestSellerViewModel : ViewModelBase
             case BuildPhasesStartEvent:
                 StatusText = $"Building Phases...";
                 break;
-
 
             case PurgeStartEvent purge:
                 StatusText = $"Purging Sellers...";
