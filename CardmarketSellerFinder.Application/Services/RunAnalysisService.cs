@@ -29,7 +29,7 @@ namespace CMBuyerStudio.Application.Services
 
         private readonly SemaphoreSlim _lock = new(1, 1);
 
-        private int _currentScrapeProgress;
+        private double _currentScrapeProgress;
         private double _percentForScrap;
 
         public RunAnalysisService(
@@ -57,8 +57,12 @@ namespace CMBuyerStudio.Application.Services
             await _lock.WaitAsync();
             try
             {
-                _currentScrapeProgress = (int)Math.Round(_currentScrapeProgress + _percentForScrap);
-                progress.Report(new CardScrapingStartedEvent(_currentScrapeProgress+5));
+                _currentScrapeProgress += _percentForScrap;
+                var next = Math.Clamp(
+                    5 + (int)Math.Round(_currentScrapeProgress, MidpointRounding.AwayFromZero),
+                    5,
+                    80);
+                progress.Report(new CardScrapingStartedEvent(next));
             }
             finally
             {
@@ -102,7 +106,10 @@ namespace CMBuyerStudio.Application.Services
 
             progress.Report(new ProxyCheckStartEvent(3));
 
-            _percentForScrap = 77/targetsToScrape.Count;
+            _currentScrapeProgress = 0d;
+            _percentForScrap = targetsToScrape.Count == 0
+                ? 0d
+                : 75d / targetsToScrape.Count;
 
             // Scrap not cached cards
             var scrapedMarketData = new List<MarketCardData>();

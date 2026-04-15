@@ -270,6 +270,65 @@ public sealed class RunAnalysisServiceTests
         Assert.Contains(progressCollector.Events, e => e is EUCalculationCompleteEvent);
     }
 
+    [Fact]
+    public async Task RunAsync_WhenScrapingManyTargets_ReportsIncreasingScrapingProgress()
+    {
+        const int targetCount = 200;
+        const string baseUrl = "https://www.cardmarket.com/en/Magic/Products/Singles/Set";
+
+        var wantedCardsRepository = new StubWantedCardsRepository(
+            Enumerable.Range(1, targetCount)
+                .Select(index => new WantedCardGroup
+                {
+                    CardName = $"Card {index}",
+                    DesiredQuantity = 1,
+                    Variants =
+                    [
+                        new WantedCardVariant
+                        {
+                            SetName = $"Set {index}",
+                            ProductUrl = $"{baseUrl}/{index}"
+                        }
+                    ]
+                })
+                .ToList());
+
+        var cacheService = new StubMarketDataCacheService([]);
+        var reportGenerator = new RecordingHtmlReportGenerator();
+        var progressCollector = new ProgressCollector();
+        using var appPaths = new TestAppPaths();
+        var appSettingsService = BuildAppSettingsService(new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Spain"] = 1.45
+        });
+        var sut = new RunAnalysisService(
+            wantedCardsRepository,
+            cacheService,
+            new YieldingCardMarketScraper(),
+            reportGenerator,
+            new OfferPurger(),
+            new PurchaseOptimizer(Options.Create(new PurchaseOptimizerOptions())),
+            appPaths,
+            appSettingsService);
+
+        await sut.RunAsync(progressCollector);
+
+        var scrapingProgressValues = progressCollector.Events
+            .OfType<CardScrapingStartedEvent>()
+            .Select(e => e.Progress)
+            .ToList();
+
+        Assert.NotEmpty(scrapingProgressValues);
+        Assert.All(scrapingProgressValues, progress => Assert.InRange(progress, 5, 80));
+        Assert.Contains(scrapingProgressValues, progress => progress > 5);
+        Assert.True(scrapingProgressValues.Distinct().Count() > 2);
+
+        for (var i = 1; i < scrapingProgressValues.Count; i++)
+        {
+            Assert.True(scrapingProgressValues[i] >= scrapingProgressValues[i - 1]);
+        }
+    }
+
     private static MarketCardData MarketData(
         string cardName,
         string setName,
@@ -381,10 +440,51 @@ public sealed class RunAnalysisServiceTests
 
         public async IAsyncEnumerable<MarketCardData> ScrapeManyAsync(
             IEnumerable<ScrapingTarget> targets,
+            IProgress<RunProgressEvent> progress,
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             await Task.CompletedTask;
             yield break;
+        }
+    }
+
+    private sealed class YieldingCardMarketScraper : ICardMarketScraper
+    {
+        public Task<MarketCardData> ScrapeAsync(ScrapingTarget target, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public async IAsyncEnumerable<MarketCardData> ScrapeManyAsync(
+            IEnumerable<ScrapingTarget> targets,
+            IProgress<RunProgressEvent> progress,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            progress.Report(new CardScrapingStartedEvent(5));
+
+            foreach (var target in targets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                yield return new MarketCardData
+                {
+                    Target = target,
+                    ScrapedAtUtc = DateTime.UtcNow,
+                    Offers =
+                    [
+                        new SellerOffer
+                        {
+                            SellerName = "BulkSeller",
+                            Country = "Spain",
+                            Price = 0.10m,
+                            AvailableQuantity = target.DesiredQuantity,
+                            CardName = target.CardName,
+                            SetName = target.SetName,
+                            ProductUrl = target.ProductUrl
+                        }
+                    ]
+                };
+            }
+
+            await Task.CompletedTask;
         }
     }
 
