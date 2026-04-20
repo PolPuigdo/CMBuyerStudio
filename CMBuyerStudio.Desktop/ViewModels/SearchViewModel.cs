@@ -1,4 +1,5 @@
 using CMBuyerStudio.Application.Abstractions;
+using CMBuyerStudio.Desktop.ErrorHandling;
 using CMBuyerStudio.Desktop.Commands;
 using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Domain.Search;
@@ -18,6 +19,8 @@ public sealed class SearchViewModel : ViewModelBase
     private readonly IWantedCardsService _wantedCardsService;
     private readonly WantedCardsViewModel _wantedCardsViewModel;
     private readonly IUserFeedbackService _userFeedbackService;
+    private readonly AsyncRelayCommand _searchCommand;
+    private readonly AsyncRelayCommand _saveSelectionCommand;
 
     private string _searchText = string.Empty;
     private SearchExpansionOption? _selectedExpansion;
@@ -36,6 +39,7 @@ public sealed class SearchViewModel : ViewModelBase
             if (SetProperty(ref _searchText, value))
             {
                 OnPropertyChanged(nameof(CanSearch));
+                _searchCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -50,6 +54,7 @@ public sealed class SearchViewModel : ViewModelBase
             if (SetProperty(ref _selectedQuantity, normalized))
             {
                 OnPropertyChanged(nameof(CanSaveSelection));
+                _saveSelectionCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -62,6 +67,7 @@ public sealed class SearchViewModel : ViewModelBase
             if (SetProperty(ref _isSearching, value))
             {
                 OnPropertyChanged(nameof(CanSearch));
+                _searchCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -74,6 +80,7 @@ public sealed class SearchViewModel : ViewModelBase
             if (SetProperty(ref _isSaving, value))
             {
                 OnPropertyChanged(nameof(CanSaveSelection));
+                _saveSelectionCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -103,7 +110,8 @@ public sealed class SearchViewModel : ViewModelBase
         ICardSearchService cardSearchService,
         IWantedCardsService wantedCardsService,
         WantedCardsViewModel wantedCardsViewModel,
-        IUserFeedbackService userFeedbackService)
+        IUserFeedbackService userFeedbackService,
+        IExceptionHandlingService exceptionHandlingService)
     {
         _cardSearchService = cardSearchService;
         _wantedCardsService = wantedCardsService;
@@ -121,8 +129,19 @@ public sealed class SearchViewModel : ViewModelBase
 
         SelectedExpansion = Expansions.FirstOrDefault(expansion => expansion.Id == 0) ?? Expansions[0];
 
-        SearchCommand = new RelayCommand(async _ => await SearchAsync());
-        SaveSelectionCommand = new RelayCommand(async _ => await SaveSelectionAsync());
+        _searchCommand = new AsyncRelayCommand(
+            _ => SearchAsync(),
+            _ => CanSearch,
+            exceptionHandlingService,
+            "SearchViewModel.Search");
+        _saveSelectionCommand = new AsyncRelayCommand(
+            _ => SaveSelectionAsync(),
+            _ => CanSaveSelection,
+            exceptionHandlingService,
+            "SearchViewModel.SaveSelection");
+
+        SearchCommand = _searchCommand;
+        SaveSelectionCommand = _saveSelectionCommand;
         SelectAllCommand = new RelayCommand(_ => SelectAll());
         ToggleSelectionCommand = new RelayCommand(parameter =>
         {
@@ -187,6 +206,7 @@ public sealed class SearchViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(SelectedVariantsCount));
         OnPropertyChanged(nameof(CanSaveSelection));
+        _saveSelectionCommand.RaiseCanExecuteChanged();
     }
 
     private async Task SearchAsync()

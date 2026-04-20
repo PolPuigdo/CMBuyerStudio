@@ -1,5 +1,7 @@
 using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.ErrorHandling;
+using CMBuyerStudio.Desktop.Extensions;
 using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Domain.WantedCards;
 using System.Collections.ObjectModel;
@@ -15,6 +17,7 @@ public class WantedCardsViewModel : ViewModelBase
 {
     private readonly IWantedCardsRepository _wantedCardsRepository;
     private readonly IUserFeedbackService _userFeedbackService;
+    private readonly IExceptionHandlingService _exceptionHandlingService;
     private bool _isInitializing;
 
     public ObservableCollection<WantedCardGroup> Groups { get; set; } = new();
@@ -25,10 +28,14 @@ public class WantedCardsViewModel : ViewModelBase
     public ICommand DeleteGroupCommand { get; }
     public ICommand ClearAllCommand { get; }
 
-    public WantedCardsViewModel(IWantedCardsRepository wantedCardsRepository, IUserFeedbackService userFeedbackService)
+    public WantedCardsViewModel(
+        IWantedCardsRepository wantedCardsRepository,
+        IUserFeedbackService userFeedbackService,
+        IExceptionHandlingService exceptionHandlingService)
     {
         _wantedCardsRepository = wantedCardsRepository;
         _userFeedbackService = userFeedbackService;
+        _exceptionHandlingService = exceptionHandlingService;
 
         RemoveVariantCommand = new RelayCommand(p => RemoveVariant(p));
         DeleteGroupCommand = new RelayCommand(p => DeleteGroup(p));
@@ -82,7 +89,7 @@ public class WantedCardsViewModel : ViewModelBase
 
         if (!_isInitializing)
         {
-            _ = SaveAsync();
+            SaveAsync().ForgetSafe(_exceptionHandlingService, "WantedCardsViewModel.Save.CollectionChanged");
         }
     }
 
@@ -105,7 +112,7 @@ public class WantedCardsViewModel : ViewModelBase
 
         if (e.PropertyName == nameof(WantedCardGroup.DesiredQuantity))
         {
-            _ = SaveAsync();
+            SaveAsync().ForgetSafe(_exceptionHandlingService, "WantedCardsViewModel.Save.DesiredQuantityChanged");
         }
     }
 
@@ -114,7 +121,7 @@ public class WantedCardsViewModel : ViewModelBase
         if (_isInitializing)
             return;
 
-        _ = SaveAsync();
+        SaveAsync().ForgetSafe(_exceptionHandlingService, "WantedCardsViewModel.Save.VariantsChanged");
     }
 
     private async Task SaveAsync()

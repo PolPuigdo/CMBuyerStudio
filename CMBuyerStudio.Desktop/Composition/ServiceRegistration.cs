@@ -2,6 +2,7 @@ using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Common.Options;
 using CMBuyerStudio.Application.Optimization;
 using CMBuyerStudio.Application.Services;
+using CMBuyerStudio.Desktop.ErrorHandling;
 using CMBuyerStudio.Desktop.Feedback;
 using CMBuyerStudio.Desktop.ViewModels;
 using CMBuyerStudio.Desktop.Views;
@@ -27,6 +28,9 @@ public static class ServiceRegistration
 {
     public static IServiceCollection AddDesktop(this IServiceCollection services)
     {
+        services.AddSingleton<IErrorDialogService, ErrorDialogService>();
+        services.AddSingleton<IExceptionLogWriter, ExceptionLogWriter>();
+        services.AddSingleton<IExceptionHandlingService, ExceptionHandlingService>();
         services.AddSingleton<IUserFeedbackService, UserFeedbackService>();
 
         services.AddSingleton<SearchViewModel>();

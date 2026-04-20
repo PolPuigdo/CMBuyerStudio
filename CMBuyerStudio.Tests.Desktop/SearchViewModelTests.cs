@@ -12,15 +12,16 @@ public sealed class SearchViewModelTests
     public async Task SearchCommand_LoadsResultsAndUpdatesSelectionState()
     {
         var feedbackService = new FakeUserFeedbackService();
+        var exceptionHandlingService = new FakeExceptionHandlingService();
         var wantedCardsRepository = new InMemoryWantedCardsRepository();
-        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService);
+        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService, exceptionHandlingService);
         var searchService = new StubCardSearchService(
         [
             SearchResult("Lightning Bolt", "M11", "https://example/m11", 0.80m, @"C:\cache\m11.jpg"),
             SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m, @"C:\cache\alpha.jpg")
         ]);
         var wantedCardsService = new RecordingWantedCardsService();
-        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService)
+        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService, exceptionHandlingService)
         {
             SearchText = "Lightning Bolt"
         };
@@ -42,14 +43,15 @@ public sealed class SearchViewModelTests
     public async Task SearchCommand_PassesSelectedExpansionIdToService()
     {
         var feedbackService = new FakeUserFeedbackService();
+        var exceptionHandlingService = new FakeExceptionHandlingService();
         var wantedCardsRepository = new InMemoryWantedCardsRepository();
-        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService);
+        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService, exceptionHandlingService);
         var searchService = new StubCardSearchService(
         [
             SearchResult("Swamp", "Shadowmoor", "https://example/shadowmoor", 0.25m)
         ]);
         var wantedCardsService = new RecordingWantedCardsService();
-        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService)
+        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService, exceptionHandlingService)
         {
             SearchText = "Swamp",
             SelectedExpansion = new SearchExpansionOption(95, "Shadowmoor")
@@ -65,11 +67,13 @@ public sealed class SearchViewModelTests
     public void Constructor_LoadsExpansionCatalogAndDefaultsToAll()
     {
         var feedbackService = new FakeUserFeedbackService();
+        var exceptionHandlingService = new FakeExceptionHandlingService();
         var sut = new SearchViewModel(
             new StubCardSearchService([]),
             new RecordingWantedCardsService(),
-            new WantedCardsViewModel(new InMemoryWantedCardsRepository(), feedbackService),
-            feedbackService);
+            new WantedCardsViewModel(new InMemoryWantedCardsRepository(), feedbackService, exceptionHandlingService),
+            feedbackService,
+            exceptionHandlingService);
 
         Assert.NotEmpty(sut.Expansions);
         Assert.Equal(0, sut.SelectedExpansion?.Id);
@@ -82,11 +86,13 @@ public sealed class SearchViewModelTests
     public void SelectedQuantity_IsNormalizedToOne()
     {
         var feedbackService = new FakeUserFeedbackService();
+        var exceptionHandlingService = new FakeExceptionHandlingService();
         var sut = new SearchViewModel(
             new StubCardSearchService([]),
             new RecordingWantedCardsService(),
-            new WantedCardsViewModel(new InMemoryWantedCardsRepository(), feedbackService),
-            feedbackService);
+            new WantedCardsViewModel(new InMemoryWantedCardsRepository(), feedbackService, exceptionHandlingService),
+            feedbackService,
+            exceptionHandlingService);
 
         sut.SelectedQuantity = 0;
 
@@ -97,6 +103,7 @@ public sealed class SearchViewModelTests
     public async Task SaveSelectionCommand_MapsVariantsCallsServiceReloadsWantedCardsAndClearsSelection()
     {
         var feedbackService = new FakeUserFeedbackService();
+        var exceptionHandlingService = new FakeExceptionHandlingService();
         var wantedCardsRepository = new InMemoryWantedCardsRepository(
         [
             new WantedCardGroup
@@ -109,7 +116,7 @@ public sealed class SearchViewModelTests
                 ]
             }
         ]);
-        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService);
+        var wantedCardsViewModel = new WantedCardsViewModel(wantedCardsRepository, feedbackService, exceptionHandlingService);
         await wantedCardsViewModel.InitializeAsync();
 
         var searchService = new StubCardSearchService(
@@ -118,7 +125,7 @@ public sealed class SearchViewModelTests
             SearchResult("Lightning Bolt", "Alpha", "https://example/alpha", 1.20m, @"C:\cache\alpha.jpg")
         ]);
         var wantedCardsService = new RecordingWantedCardsService();
-        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService)
+        var sut = new SearchViewModel(searchService, wantedCardsService, wantedCardsViewModel, feedbackService, exceptionHandlingService)
         {
             SearchText = "Lightning Bolt",
             SelectedQuantity = 3

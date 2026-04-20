@@ -2,6 +2,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.ErrorHandling;
+using CMBuyerStudio.Desktop.Extensions;
 using CMBuyerStudio.Desktop.Feedback;
 
 namespace CMBuyerStudio.Desktop.ViewModels;
@@ -9,6 +11,7 @@ namespace CMBuyerStudio.Desktop.ViewModels;
 public sealed class MainWindowViewModel : ViewModelBase
 {
     private readonly IUserFeedbackService _userFeedbackService;
+    private readonly IExceptionHandlingService _exceptionHandlingService;
     private readonly SynchronizationContext? _synchronizationContext;
 
     private ViewModelBase _currentViewModel;
@@ -23,9 +26,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         RunBestSellerViewModel runBestSellerViewModel,
         SettingsViewModel settingsViewModel,
         LogsViewModel logsViewModel,
-        IUserFeedbackService userFeedbackService)
+        IUserFeedbackService userFeedbackService,
+        IExceptionHandlingService exceptionHandlingService)
     {
         _userFeedbackService = userFeedbackService;
+        _exceptionHandlingService = exceptionHandlingService;
         _synchronizationContext = SynchronizationContext.Current;
 
         SearchViewModel = searchViewModel;
@@ -103,7 +108,8 @@ public sealed class MainWindowViewModel : ViewModelBase
 
             _toastVersion++;
             var currentToastVersion = _toastVersion;
-            _ = HideToastAfterDelayAsync(currentToastVersion, toast.DurationMs);
+            HideToastAfterDelayAsync(currentToastVersion, toast.DurationMs)
+                .ForgetSafe(_exceptionHandlingService, "MainWindowViewModel.HideToastAfterDelay");
         });
     }
 

@@ -1,6 +1,8 @@
 using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Models;
+using CMBuyerStudio.Desktop.ErrorHandling;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.Extensions;
 using CMBuyerStudio.Desktop.Feedback;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -15,7 +17,8 @@ public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly IAppSettingsService _appSettingsService;
     private readonly IUserFeedbackService _userFeedbackService;
-    private readonly RelayCommand _saveCommand;
+    private readonly IExceptionHandlingService _exceptionHandlingService;
+    private readonly AsyncRelayCommand _saveCommand;
     private readonly Dictionary<string, double> _additionalShippingCountries = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _isDirty;
@@ -36,10 +39,14 @@ public sealed class SettingsViewModel : ViewModelBase
     private int _currentMaxConcurrentWorkers = 10;
     private string _currentUrlProxyChecker = string.Empty;
 
-    public SettingsViewModel(IAppSettingsService appSettingsService, IUserFeedbackService userFeedbackService)
+    public SettingsViewModel(
+        IAppSettingsService appSettingsService,
+        IUserFeedbackService userFeedbackService,
+        IExceptionHandlingService exceptionHandlingService)
     {
         _appSettingsService = appSettingsService;
         _userFeedbackService = userFeedbackService;
+        _exceptionHandlingService = exceptionHandlingService;
 
         SellerCountryOptions = new ObservableCollection<SelectableOptionViewModel>(
             SettingsCatalog.SellerCountries.Select(item => new SelectableOptionViewModel(item.Id, item.Name)));
@@ -50,7 +57,11 @@ public sealed class SettingsViewModel : ViewModelBase
         ShippingCosts = new ObservableCollection<ShippingCostEntryViewModel>();
         Proxies = new ObservableCollection<ProxyEntryViewModel>();
 
-        _saveCommand = new RelayCommand(async _ => await SaveAsync(), _ => CanSave);
+        _saveCommand = new AsyncRelayCommand(
+            _ => SaveAsync(),
+            _ => CanSave,
+            _exceptionHandlingService,
+            "SettingsViewModel.Save");
         SaveCommand = _saveCommand;
         AddProxyCommand = new RelayCommand(_ => AddProxy());
         RemoveProxyCommand = new RelayCommand(RemoveProxy);
@@ -59,7 +70,7 @@ public sealed class SettingsViewModel : ViewModelBase
         HookSelectableOptions(SellerCountryOptions);
         HookSelectableOptions(LanguageOptions);
 
-        _ = LoadAsync();
+        LoadAsync().ForgetSafe(_exceptionHandlingService, "SettingsViewModel.Load");
     }
 
     public ObservableCollection<ShippingCostEntryViewModel> ShippingCosts { get; }
@@ -210,6 +221,7 @@ public sealed class SettingsViewModel : ViewModelBase
             ValidationMessage = ex.Message;
             StatusMessage = "Could not load settings.";
             IsDirty = false;
+            _exceptionHandlingService.Handle(ex, "SettingsViewModel.Load");
         }
         finally
         {
@@ -249,6 +261,7 @@ public sealed class SettingsViewModel : ViewModelBase
         {
             ValidationMessage = ex.Message;
             StatusMessage = "Could not save settings.";
+            _exceptionHandlingService.Handle(ex, "SettingsViewModel.Save");
         }
         finally
         {

@@ -1,6 +1,7 @@
 using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Desktop.Commands;
+using CMBuyerStudio.Desktop.ErrorHandling;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
@@ -16,6 +17,7 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 {
     private readonly IRunAnalysisService _runService;
     private readonly WantedCardsViewModel _wantedCardsViewModel;
+    private readonly AsyncRelayCommand _runCommand;
     private CancellationTokenSource? _cts;
     private string? _euReportPath;
     private string? _localReportPath;
@@ -29,12 +31,19 @@ public sealed class RunBestSellerViewModel : ViewModelBase
 
     public RunBestSellerViewModel(
         IRunAnalysisService runService,
-        WantedCardsViewModel wantedCardsViewModel)
+        WantedCardsViewModel wantedCardsViewModel,
+        IExceptionHandlingService exceptionHandlingService)
     {
         _runService = runService;
         _wantedCardsViewModel = wantedCardsViewModel;
 
-        RunCommand = new RelayCommand(async _ => await RunAsync());
+        _runCommand = new AsyncRelayCommand(
+            _ => RunAsync(),
+            _ => CanRun,
+            exceptionHandlingService,
+            "RunBestSellerViewModel.Run");
+
+        RunCommand = _runCommand;
         CancelCommand = new RelayCommand(_ => Cancel());
         OpenEuReportCommand = new RelayCommand(_ => OpenReport(_euReportPath));
         OpenLocalReportCommand = new RelayCommand(_ => OpenReport(_localReportPath));
@@ -94,7 +103,13 @@ public sealed class RunBestSellerViewModel : ViewModelBase
     public bool CanRun
     {
         get => _canRun;
-        set => SetProperty(ref _canRun, value);
+        set
+        {
+            if (SetProperty(ref _canRun, value))
+            {
+                _runCommand.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public string RunButtonText => "Calculate Best Sellers";

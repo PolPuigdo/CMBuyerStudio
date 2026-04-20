@@ -12,7 +12,8 @@ public sealed class SettingsViewModelTests
     {
         var service = new RecordingAppSettingsService(BuildSnapshot());
         var feedbackService = new FakeUserFeedbackService();
-        var sut = new SettingsViewModel(service, feedbackService);
+        var exceptionHandlingService = new FakeExceptionHandlingService();
+        var sut = new SettingsViewModel(service, feedbackService, exceptionHandlingService);
 
         await AsyncTestHelper.WaitUntilAsync(() => !sut.IsLoading);
 
@@ -35,7 +36,8 @@ public sealed class SettingsViewModelTests
     {
         var service = new RecordingAppSettingsService(BuildSnapshot());
         var feedbackService = new FakeUserFeedbackService();
-        var sut = new SettingsViewModel(service, feedbackService);
+        var exceptionHandlingService = new FakeExceptionHandlingService();
+        var sut = new SettingsViewModel(service, feedbackService, exceptionHandlingService);
 
         await AsyncTestHelper.WaitUntilAsync(() => !sut.IsLoading);
 
