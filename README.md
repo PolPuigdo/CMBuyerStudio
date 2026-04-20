@@ -1,6 +1,6 @@
-<p align="center">
-  <strong>Search better.</strong> • <strong>Save your list.</strong> • <strong>Optimize sellers.</strong>
-</p>
+<h1 align="center">
+  <strong>Search better</strong> • <strong>Save your list</strong> • <strong>Optimize sellers</strong>
+</h1>
 
 <img width="1536" height="621" alt="banner_CMBuyerStudio" src="https://github.com/user-attachments/assets/3db1fc17-3416-48e9-8fba-b75adf6420a7" />
 
