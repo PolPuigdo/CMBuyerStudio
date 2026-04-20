@@ -1,5 +1,6 @@
 using CMBuyerStudio.Application.Abstractions;
 using CMBuyerStudio.Application.Models;
+using CMBuyerStudio.Application.RunAnalysis;
 using CMBuyerStudio.Domain.Market;
 using CMBuyerStudio.Infrastructure.Cardmarket.Playwright;
 using CMBuyerStudio.Infrastructure.Cardmarket.Scraping;
@@ -36,8 +37,9 @@ public sealed class CardMarketScraperTests
         var setup = new ConfigurableCardmarketSessionSetup((_, attempt) =>
             attempt < 3 ? new InvalidOperationException("Transient failure") : null);
         var sut = CreateScraper(sessionFactory, setup, new NoDelayScrapeDelayStrategy());
+        var progress = new Progress<RunProgressEvent>(_ => { });
 
-        var results = await ToListAsync(sut.ScrapeManyAsync([Target("https://www.cardmarket.com/en/Magic/Products/Singles/Alpha/Lightning-Bolt")]));
+        var results = await ToListAsync(sut.ScrapeManyAsync([Target("https://www.cardmarket.com/en/Magic/Products/Singles/Alpha/Lightning-Bolt")], progress));
 
         Assert.Single(results);
         Assert.Equal(2, results[0].Offers.Count);
@@ -53,12 +55,13 @@ public sealed class CardMarketScraperTests
                 ? new InvalidOperationException("Permanent failure")
                 : null);
         var sut = CreateScraper(sessionFactory, setup, new NoDelayScrapeDelayStrategy());
+        var progress = new Progress<RunProgressEvent>(_ => { });
 
         var results = await ToListAsync(sut.ScrapeManyAsync(
         [
             Target("https://www.cardmarket.com/en/Magic/Products/Singles/Alpha/AlwaysFail"),
             Target("https://www.cardmarket.com/en/Magic/Products/Singles/Alpha/Lightning-Bolt")
-        ]));
+        ], progress));
 
         Assert.Single(results);
         Assert.Contains("Lightning-Bolt", results[0].Target.ProductUrl, StringComparison.OrdinalIgnoreCase);
